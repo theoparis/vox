@@ -237,18 +237,79 @@ fn test_stencil_clear_value_and_write_mask() {
 	c.clear(gl_color_buffer_bit)
 	stencil_rect(mut c, prog, -1, 1, 1, 0, 0)
 	assert stencil_pixel(mut c, 2) == [u8(255), 0, 0, 255]
-	// A zero write mask leaves the plane alone; a partial mask is refused.
+	// A zero write mask leaves the plane alone.
 	c.stencil_mask(0)
 	c.clear_stencil(9)
 	c.clear(gl_stencil_buffer_bit)
 	assert c.get_error() == gl_no_error
-	c.stencil_mask(0x0f)
-	c.clear(gl_stencil_buffer_bit)
-	assert c.get_error() == gl_invalid_operation
 	c.stencil_mask(0xff)
 	c.clear(gl_color_buffer_bit)
 	stencil_rect(mut c, prog, -1, 1, 0, 0, 1)
-	assert stencil_pixel(mut c, 2) == [u8(0), 0, 255, 255] // still 5, equal to ref 5
+	assert stencil_pixel(mut c, 2) == [u8(0), 0, 255, 255] // still 5
+	// A partial mask replaces only its bits: (5 & ~0x0f) | (9 & 0x0f) == 9.
+	c.stencil_mask(0x0f)
+	c.clear(gl_stencil_buffer_bit)
+	assert c.get_error() == gl_no_error
+	c.stencil_mask(0xff)
+	c.clear(gl_color_buffer_bit)
+	c.stencil_func(gl_equal, 9, 0xff)
+	stencil_rect(mut c, prog, -1, 1, 1, 1, 0)
+	assert stencil_pixel(mut c, 2) == [u8(255), 255, 0, 255]
+	// With a scissor only the rectangle's stencil changes: clear to 3 on the left.
+	c.enable(gl_scissor_test)
+	c.scissor(0, 0, 2, 3)
+	c.clear_stencil(3)
+	c.clear(gl_stencil_buffer_bit)
+	c.disable(gl_scissor_test)
+	c.clear(gl_color_buffer_bit)
+	c.stencil_func(gl_equal, 3, 0xff)
+	stencil_rect(mut c, prog, -1, 1, 0, 1, 1)
+	assert stencil_pixel(mut c, 0) == [u8(0), 255, 255, 255]
+	assert stencil_pixel(mut c, 3) == [u8(0), 0, 0, 255]
+}
+
+fn test_scissored_depth_clear_and_depth_mask() {
+	$if !macos {
+		return
+	}
+	mut f := gl_fixture() or { panic(err.msg()) }
+	defer {
+		f.teardown()
+	}
+	mut c := f.display.current()
+	prog := link_program_for(mut c, 'attribute vec2 a_pos;\nuniform float u_z;\nvoid main() { gl_Position = vec4(a_pos, u_z, 1.0); }',
+		solid_fs)
+	c.use_program(prog)
+	bind_positions(mut c, prog, 'a_pos', [f32(-1), -1, 1, -1, -1, 1, 1, 1])
+	c.uniform_floats(c.uniform_location(prog, 'u_color'), [f32(1), 1, 1, 1])
+	c.set_clear_color(0, 0, 0, 1)
+	c.clear_depth(0.25)
+	c.clear(gl_color_buffer_bit | gl_depth_buffer_bit)
+	// Clear the right half's depth back to 1.0 with a scissor.
+	c.enable(gl_scissor_test)
+	c.scissor(2, 0, 2, 3)
+	c.clear_depth(1)
+	c.clear(gl_depth_buffer_bit)
+	c.disable(gl_scissor_test)
+	// z = 0.5 in clip space is window depth 0.75: behind 0.25 on the left, in
+	// front of 1.0 on the right.
+	c.enable(gl_depth_test)
+	c.uniform_floats(c.uniform_location(prog, 'u_z'), [f32(0.5)])
+	c.draw_arrays(gl_triangle_strip, 0, 4)
+	assert stencil_pixel(mut c, 0) == [u8(0), 0, 0, 255]
+	assert stencil_pixel(mut c, 3) == [u8(255), 255, 255, 255]
+	// With the depth mask off a clear leaves depth alone: it stays 1.0, so the
+	// draw passes everywhere (a clear to 0 would have rejected it).
+	c.clear_depth(1)
+	c.clear(gl_depth_buffer_bit)
+	c.depth_mask(false)
+	c.clear_depth(0)
+	c.clear(gl_depth_buffer_bit)
+	c.depth_mask(true)
+	c.clear(gl_color_buffer_bit)
+	c.draw_arrays(gl_triangle_strip, 0, 4)
+	assert stencil_pixel(mut c, 0) == [u8(255), 255, 255, 255]
+	assert c.get_error() == gl_no_error
 }
 
 fn stencil_fbo(mut c Context, w int, h int) {

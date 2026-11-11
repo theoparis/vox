@@ -67,20 +67,19 @@ and `GL_TRIANGLE_STRIP` draws.
   `STENCIL_INDEX8`, `DEPTH24_STENCIL8` or `DEPTH_STENCIL` provide it; attach with
   `STENCIL_ATTACHMENT` or `DEPTH_STENCIL_ATTACHMENT`. Func, reference, masks and
   ops are kept per face and drive Metal's stencil test; a target with no stencil
-  plane always passes. Limits: a depth renderbuffer and a different stencil
-  renderbuffer cannot be attached together (`FRAMEBUFFER_UNSUPPORTED`), and a
-  stencil clear with a partial write mask is `INVALID_OPERATION`, like a scissored
-  or color-masked clear (a zero mask is a no-op). Color renderbuffers and depth
-  textures are not implemented.
+  plane always passes. A depth renderbuffer and a different stencil renderbuffer
+  cannot be attached together (`FRAMEBUFFER_UNSUPPORTED`). Color renderbuffers
+  and depth textures are not implemented.
 - `glLineWidth` stores the width, but Metal draws one-pixel lines, which is
   also the reported range. Sample coverage and dither are tracked, not applied.
 - Integer and bool uniform vectors do not exist in the shader subset, so
   `glUniform{2,3,4}i[v]` always report `INVALID_OPERATION`. `glCopyTexImage2D`
   reads the framebuffer through the CPU; compressed formats are `INVALID_ENUM`.
 - Draws: float attributes only; no non-RGBA formats, transform feedback, queries or sync objects.
-- Clear with the scissor test enabled (or a partial color mask for a color
-  clear) returns `INVALID_OPERATION`: a Metal load-action clear ignores both, and a masked fill
-  does not exist yet.
+- Clears: an unrestricted clear uses a Metal load action. With the scissor test
+  on, a partial color write mask or a partial stencil write mask, the clear is
+  drawn as a full-target quad (`gl_clear.v`) so scissor and masks apply per
+  pixel; depth clears honor the depth mask. Viewport never affects clears.
 - `glEnable`/`glDisable` accept `GL_SCISSOR_TEST`, `GL_BLEND`, `GL_DEPTH_TEST`
   and `GL_CULL_FACE`. `GL_CULL_FACE` with `FRONT_AND_BACK` skips triangle draws.
 - Clip z is remapped from GL's [-w, w] to Metal's [0, w] in the vertex wrapper,

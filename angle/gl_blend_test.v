@@ -142,7 +142,7 @@ fn test_additive_and_constant_color_blending() {
 	assert px2[2] == 0
 }
 
-fn test_color_mask_limits_writes_and_blocks_clear() {
+fn test_color_mask_limits_writes_and_clears() {
 	$if !macos {
 		return
 	}
@@ -157,12 +157,19 @@ fn test_color_mask_limits_writes_and_blocks_clear() {
 	c.color_mask(true, false, true, true)
 	fill_quad(mut c, prog, 1, 1, 1, 1)
 	assert first_pixel(mut c) == [u8(255), 0, 255, 255]
-	// A load-action clear cannot honor a partial mask, so it is refused.
-	c.clear(gl_color_buffer_bit)
-	assert c.get_error() == gl_invalid_operation
-	c.color_mask(true, true, true, true)
+	// A clear honors the mask too: it changes only the enabled channels.
+	c.set_clear_color(0, 1, 0, 0)
 	c.clear(gl_color_buffer_bit)
 	assert c.get_error() == gl_no_error
+	assert first_pixel(mut c) == [u8(0), 0, 0, 0] // R, B, A cleared; G kept at 0
+	c.color_mask(false, true, false, false)
+	c.clear(gl_color_buffer_bit)
+	assert first_pixel(mut c) == [u8(0), 255, 0, 0]
+	c.color_mask(true, true, true, true)
+	c.set_clear_color(0, 0, 0, 0)
+	c.clear(gl_color_buffer_bit)
+	assert c.get_error() == gl_no_error
+	assert first_pixel(mut c) == [u8(0), 0, 0, 0]
 }
 
 // index_fixture binds a program and a position buffer of four corners that

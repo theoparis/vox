@@ -319,7 +319,9 @@ int main(int argc, char **argv)
     glDisable_fn(0x0BE2);
     glColorMask_fn(1, 0, 1, 1);
     glClear_fn(0x4000);
-    CHECK(glGetError_fn() == 0x0502); /* a masked clear is refused */
+    CHECK(glGetError_fn() == 0); /* a masked clear is drawn through the mask */
+    glReadPixels_fn(0, 0, 4, 3, 0x1908, 0x1401, pixels);
+    CHECK(pixels[0] == 0 && pixels[1] == 0 && pixels[2] == 255 && pixels[3] == 255);
     glColorMask_fn(1, 1, 1, 1);
 
     /* Depth-tested draws into the framebuffer with a depth renderbuffer. */

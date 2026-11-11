@@ -179,7 +179,7 @@ fn test_viewport_maps_ndc_to_a_sub_rectangle() {
 	assert pixel_at(px, 0, 0) == black
 }
 
-fn test_scissored_clear_is_refused_until_masked_fills_exist() {
+fn test_scissored_clear_touches_only_the_rectangle() {
 	$if !macos {
 		return
 	}
@@ -188,7 +188,30 @@ fn test_scissored_clear_is_refused_until_masked_fills_exist() {
 		f.teardown()
 	}
 	mut c := f.display.current()
-	c.enable(gl_scissor_test)
+	c.set_clear_color(0, 0, 1, 1)
 	c.clear(gl_color_buffer_bit)
-	assert c.get_error() == gl_invalid_operation
+	c.enable(gl_scissor_test)
+	c.scissor(1, 1, 2, 1)
+	c.set_clear_color(1, 0, 0, 1)
+	c.clear(gl_color_buffer_bit)
+	assert c.get_error() == gl_no_error
+	px := fn [mut c] (x int, y int) []u8 {
+		return c.read_pixels(x, y, 1, 1, gl_rgba, gl_unsigned_byte)
+	}
+	assert px(1, 1) == [u8(255), 0, 0, 255]
+	assert px(2, 1) == [u8(255), 0, 0, 255]
+	assert px(0, 1) == [u8(0), 0, 255, 255]
+	assert px(3, 1) == [u8(0), 0, 255, 255]
+	assert px(1, 0) == [u8(0), 0, 255, 255]
+	assert px(1, 2) == [u8(0), 0, 255, 255]
+	// An empty rectangle clears nothing, and clears do not depend on the viewport.
+	c.scissor(0, 0, 0, 0)
+	c.set_clear_color(0, 1, 0, 1)
+	c.clear(gl_color_buffer_bit)
+	assert px(1, 1) == [u8(255), 0, 0, 255]
+	c.viewport(0, 0, 0, 0)
+	c.scissor(0, 0, 4, 3)
+	c.clear(gl_color_buffer_bit)
+	assert px(3, 2) == [u8(0), 255, 0, 255]
+	assert c.get_error() == gl_no_error
 }

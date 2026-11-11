@@ -121,6 +121,9 @@ mut:
 	stencil            StencilState
 	attrib_consts      [16]AttribConst
 	vaos               map[u32]VertexArray
+	// clear_library and clear_pipelines back clears a load action cannot do.
+	clear_library   u32
+	clear_pipelines map[string]u32
 	default_vao        VertexArray
 	bound_vao          u32
 	bound_buffers      map[u32]u32
@@ -200,6 +203,7 @@ fn (mut c Context) release_all() {
 			c.display.backend.destroy_texture(rb.handle)
 		}
 	}
+	c.release_clear_pipelines()
 	c.vaos = map[u32]VertexArray{}
 	c.default_vao = VertexArray{}
 	c.bound_vao = 0
@@ -621,17 +625,19 @@ pub fn (mut c Context) clear(mask u32) {
 		c.set_error(gl_invalid_framebuffer_operation)
 		return
 	}
-	// A plane the target lacks is ignored. A stencil clear honors the write
-	// mask, which a load-action clear cannot do for a partial mask.
+	// A plane the target lacks is ignored; a depth clear honors the depth mask
+	// and a stencil clear the stencil write mask.
 	do_depth := want_depth && target.has_depth && c.depth.write_enabled()
 	front_mask := c.stencil.front.write & 0xFF
 	do_stencil := want_stencil && target.has_stencil && front_mask != 0
-	partial_stencil := do_stencil && front_mask != 0xFF
-	if c.scissor_test || (want_color && !c.blend.full_mask()) || partial_stencil {
-		c.set_error(gl_invalid_operation)
+	do_color := want_color
+	// A load-action clear writes every sample of every plane, so anything
+	// narrower (scissor, color mask, partial stencil mask) is drawn as a quad.
+	if c.scissor_test || (do_color && !c.blend.full_mask()) || (do_stencil && front_mask != 0xFF) {
+		c.clear_with_quad(target, do_color, do_depth, do_stencil)
 		return
 	}
-	if want_color {
+	if do_color {
 		c.display.backend.clear_texture(target.handle, c.clear_color[0], c.clear_color[1],
 			c.clear_color[2], c.clear_color[3]) or {
 			c.set_error(gl_out_of_memory)
