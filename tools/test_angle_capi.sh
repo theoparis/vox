@@ -22,3 +22,12 @@ print('all %d dispatch symbols exported' % len(required))
 PY
 cc -o "$out/capi_smoke" angle/capi_smoke.c
 "$out/capi_smoke" "$out/libvoxangle.dylib"
+
+# Optional: build webgl/native_egl.h unmodified against the Khronos and ANGLE
+# headers in $KHRONOS_INCLUDE (EGL/, GLES2/, GLES3/, KHR/; the two *_angle.h
+# headers come from the ANGLE repository's include/) and run it through the
+# VOX_WEBGL_ANGLE_V selector. Skipped when the variable is unset.
+if [ -n "${KHRONOS_INCLUDE:-}" ]; then
+    cc -w -I"$KHRONOS_INCLUDE" -I webgl -o "$out/webgl_glue" angle/webgl_glue_smoke.c
+    VOX_WEBGL_ANGLE_V="$out/libvoxangle.dylib" "$out/webgl_glue"
+fi

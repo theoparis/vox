@@ -110,7 +110,7 @@ fn (c &Context) query_values(pname u32) ?[]f64 {
 			[f64(0)]
 		}
 		else {
-			none
+			c.query_fixed_values(pname)
 		}
 	}
 }
@@ -185,4 +185,49 @@ pub fn (mut c Context) get_shader_source(name u32) string {
 		return ''
 	}
 	return c.shaders[name].source
+}
+
+// query_fixed_values answers the pnames whose values are constants of this
+// implementation or plain stored state. Stencil values are the GL defaults
+// because stencil state is validate-only (there is no stencil buffer).
+fn (c &Context) query_fixed_values(pname u32) ?[]f64 {
+	return match pname {
+		0x0D05 { [f64(c.misc.pack_alignment)] }
+		0x0CF5 { [f64(c.misc.unpack_alignment)] }
+		0x0B21 { [f64(c.misc.line_width)] }
+		0x8038 { [f64(c.misc.polygon_factor)] }
+		0x2A00 { [f64(c.misc.polygon_units)] }
+		0x80AA { [f64(c.misc.coverage_value)] }
+		0x80AB { [f64(if c.misc.coverage_invert { 1 } else { 0 })] }
+		0x8192 { [f64(c.misc.generate_hint)] } // GENERATE_MIPMAP_HINT
+		0x0D50 { [f64(0)] } // SUBPIXEL_BITS
+		0x0D52, 0x0D53, 0x0D54, 0x0D55 { [f64(8)] } // R, G, B, A bits
+		0x0D56 { [f64(if c.framebuffer_has_depth() { 24 } else { 0 })] }
+		0x0D57 { [f64(0)] } // STENCIL_BITS
+		0x84E8, 0x851C { [f64(max_texture_dimension)] } // MAX_RENDERBUFFER_SIZE, MAX_CUBE_MAP_TEXTURE_SIZE
+		0x846D, 0x846E { [f64(1), f64(1)] } // ALIASED_POINT_SIZE_RANGE, ALIASED_LINE_WIDTH_RANGE
+		0x86A2 { [f64(0)] } // NUM_COMPRESSED_TEXTURE_FORMATS
+		0x86A3 { []f64{} } // COMPRESSED_TEXTURE_FORMATS
+		0x8CA7 { [f64(c.bound_renderbuffer)] }
+		0x85B5 { [f64(c.bound_vao)] } // VERTEX_ARRAY_BINDING
+		0x8B9A { [f64(0x1908)] } // IMPLEMENTATION_COLOR_READ_FORMAT
+		0x8B9B { [f64(0x1401)] } // IMPLEMENTATION_COLOR_READ_TYPE
+		0x0B94 { [f64(0x1E00)] } // STENCIL_FAIL: KEEP
+		0x0B95, 0x0B96 { [f64(0x1E00)] } // STENCIL_PASS_DEPTH_FAIL, _PASS
+		0x0B92, 0x8800 { [f64(0x0207)] } // STENCIL_FUNC, BACK_FUNC: ALWAYS
+		0x8801, 0x8802 { [f64(0x1E00)] } // BACK_FAIL, BACK_PASS_DEPTH_FAIL
+		0x8803 { [f64(0x1E00)] } // BACK_PASS_DEPTH_PASS
+		0x0B97, 0x8CA3 { [f64(0)] } // STENCIL_REF, BACK_REF
+		0x0B93, 0x0B98, 0x8CA4, 0x8CA5 { [f64(-1)] } // value/writemasks
+		0x0B91 { [f64(c.misc.clear_stencil)] }
+		else { none }
+	}
+}
+
+// framebuffer_has_depth reports whether the bound draw target has depth.
+fn (c &Context) framebuffer_has_depth() bool {
+	if c.bound_framebuffer == 0 {
+		return true
+	}
+	return c.framebuffers[c.bound_framebuffer].depth_rb != 0
 }
