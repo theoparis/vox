@@ -326,7 +326,7 @@ int main(int argc, char **argv)
     unsigned depth_rb = 0;
     glGenRenderbuffers_fn(1, &depth_rb);
     glBindRenderbuffer_fn(0x8D41, depth_rb);
-    glRenderbufferStorage_fn(0x8D41, 0x81A5, 4, 3);
+    glRenderbufferStorage_fn(0x8D41, 0x81A6, 4, 3); /* DEPTH_COMPONENT24, as native_egl.h asks */
     glBindFramebuffer_fn(0x8D40, framebuffer);
     glFramebufferRenderbuffer_fn(0x8D40, 0x8D00, 0x8D41, depth_rb);
     CHECK(glCheckFramebufferStatus_fn(0x8D40) == 0x8CD5);
