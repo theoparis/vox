@@ -114,7 +114,7 @@ fn test_strings_describe_the_implementation_without_claiming_es3() {
 	mut c := f.display.current()
 	assert (c.get_string(gl_version) or { '' }).starts_with('OpenGL ES 2.0')
 	assert (c.get_string(gl_renderer) or { '' }).contains('metal:')
-	assert (c.get_string(gl_extensions) or { 'x' }) == ''
+	assert (c.get_string(gl_extensions) or { 'x' }) == 'GL_ANGLE_instanced_arrays GL_OES_vertex_array_object'
 	assert c.get_error() == gl_no_error
 	c.get_string(0x1234) or {
 		assert c.get_error() == gl_invalid_enum

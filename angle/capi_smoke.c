@@ -94,6 +94,17 @@ void glVertexAttribDivisorANGLE(unsigned, unsigned);
 void glDrawArraysInstancedANGLE(unsigned, int, int, int);
 void glDrawElementsInstancedANGLE(unsigned, int, unsigned, const void *, int);
 void glGenerateMipmap(unsigned);
+void glGenQueries(int, unsigned *);
+void *glFenceSync(unsigned, unsigned);
+unsigned glClientWaitSync(void *, unsigned, unsigned long long);
+unsigned glGetUniformBlockIndex(unsigned, const char *);
+void glBlitFramebuffer(int, int, int, int, int, int, int, int, unsigned, unsigned);
+void glCompressedTexSubImage2D(unsigned, int, int, int, int, int, unsigned, int, const void *);
+void glReadPixelsRobustANGLE(int, int, int, int, unsigned, unsigned, int, int *, int *, int *, void *);
+void glTexImage2DRobustANGLE(unsigned, int, int, int, int, int, unsigned, unsigned, int, const void *);
+void glTexSubImage2DRobustANGLE(unsigned, int, int, int, int, int, unsigned, unsigned, int, const void *);
+void glRequestExtensionANGLE(const char *);
+void glDrawRangeElements(unsigned, unsigned, unsigned, int, unsigned, const void *);
 void glFlush(void);
 void glFinish(void);
 
@@ -189,6 +200,17 @@ int main(int argc, char **argv)
     SYM(glDrawArraysInstancedANGLE);
     SYM(glDrawElementsInstancedANGLE);
     SYM(glGenerateMipmap);
+    SYM(glGenQueries);
+    SYM(glFenceSync);
+    SYM(glClientWaitSync);
+    SYM(glGetUniformBlockIndex);
+    SYM(glBlitFramebuffer);
+    SYM(glCompressedTexSubImage2D);
+    SYM(glReadPixelsRobustANGLE);
+    SYM(glTexImage2DRobustANGLE);
+    SYM(glTexSubImage2DRobustANGLE);
+    SYM(glRequestExtensionANGLE);
+    SYM(glDrawRangeElements);
     SYM(glFlush);
     SYM(glFinish);
 
@@ -395,6 +417,53 @@ int main(int argc, char **argv)
     glTexImage2D_fn(0x0DE1, 0, 0x1908, 4, 3, 0, 0x1908, 0x1401, NULL);
     glGenerateMipmap_fn(0x0DE1);
     CHECK(glGetError_fn() == 0x0502); /* NPOT sizes cannot have mipmaps in ES 2 */
+
+    /* ES 3 entry points on an ES 2 context, and the Robust pixel transfers. */
+    unsigned query = 0;
+    glGenQueries_fn(1, &query);
+    CHECK(glGetError_fn() == 0x0502);
+    CHECK(glFenceSync_fn(0x9117, 0) == NULL && glGetError_fn() == 0x0502);
+    CHECK(glClientWaitSync_fn(NULL, 0, 0) == 0x911D && glGetError_fn() == 0x0502);
+    CHECK(glGetUniformBlockIndex_fn(program, "block") == 0xFFFFFFFFu && glGetError_fn() == 0x0502);
+    glBlitFramebuffer_fn(0, 0, 1, 1, 0, 0, 1, 1, 0x4000, 0x2600);
+    CHECK(glGetError_fn() == 0x0502);
+    glCompressedTexSubImage2D_fn(0x0DE1, 0, 0, 0, 4, 4, 0x83F0, 8, NULL);
+    CHECK(glGetError_fn() == 0x0500);
+    glRequestExtensionANGLE_fn("GL_ANGLE_instanced_arrays");
+    CHECK(glGetError_fn() == 0);
+    glRequestExtensionANGLE_fn("GL_NOT_AN_EXTENSION");
+    CHECK(glGetError_fn() == 0x0502);
+    const char *extensions = (const char *)glGetString_fn(0x1F03);
+    CHECK(extensions && strstr(extensions, "GL_OES_vertex_array_object"));
+    glDrawRangeElements_fn(0x0004, 5, 2, 3, 0x1403, NULL);
+    CHECK(glGetError_fn() == 0x0501);
+    {
+        unsigned char upload[4 * 4 * 4];
+        memset(upload, 0x42, sizeof upload);
+        unsigned robust_texture = 0;
+        glGenTextures_fn(1, &robust_texture);
+        glBindTexture_fn(0x0DE1, robust_texture);
+        glTexImage2DRobustANGLE_fn(0x0DE1, 0, 0x1908, 4, 4, 0, 0x1908, 0x1401, (int)sizeof upload, upload);
+        CHECK(glGetError_fn() == 0);
+        glTexImage2DRobustANGLE_fn(0x0DE1, 0, 0x1908, 4, 4, 0, 0x1908, 0x1401, 8, upload);
+        CHECK(glGetError_fn() == 0x0502); /* the buffer is smaller than the image */
+        unsigned char patch[2 * 2 * 4];
+        memset(patch, 0x99, sizeof patch);
+        glTexSubImage2DRobustANGLE_fn(0x0DE1, 0, 1, 1, 2, 2, 0x1908, 0x1401, (int)sizeof patch, patch);
+        CHECK(glGetError_fn() == 0);
+        unsigned robust_fbo = 0;
+        glGenFramebuffers_fn(1, &robust_fbo);
+        glBindFramebuffer_fn(0x8D40, robust_fbo);
+        glFramebufferTexture2D_fn(0x8D40, 0x8CE0, 0x0DE1, robust_texture, 0);
+        unsigned char back[4 * 4 * 4];
+        int length = 0, columns = 0, rows = 0;
+        glReadPixelsRobustANGLE_fn(0, 0, 4, 4, 0x1908, 0x1401, (int)sizeof back, &length, &columns, &rows, back);
+        CHECK(glGetError_fn() == 0 && length == 64 && columns == 4 && rows == 4);
+        CHECK(back[0] == 0x42 && back[(1 * 4 + 1) * 4] == 0x99 && back[(2 * 4 + 2) * 4 + 3] == 0x99);
+        glReadPixelsRobustANGLE_fn(0, 0, 4, 4, 0x1908, 0x1401, 16, &length, &columns, &rows, back);
+        CHECK(glGetError_fn() == 0x0502);
+        glBindFramebuffer_fn(0x8D40, framebuffer);
+    }
 
     /* A broken shader reports a log through the C ABI. */
     const char *bad_src = "void main() { gl_FragColor = vec4(missing); }";

@@ -102,22 +102,36 @@ and `GL_TRIANGLE_STRIP` draws.
 
 ## C ABI (shared library)
 
-`capi*.v` exports the core as `libEGL`/`libGLESv2`-style C symbols: 161 of the
-241 that `webgl/angle_dispatch_darwin.h` lists. Build and check with
+`capi*.v` and the C shims export every symbol that
+`webgl/angle_dispatch_darwin.h` resolves (all 241). Build and check with
 
     sh tools/test_angle_capi.sh
 
 which builds `-d vox_angle_capi -shared` with the C backend (`fastc` cannot build
-shared libraries) and runs `capi_smoke.c`, a `dlopen` client. It creates a
-surfaceless context, compiles and links GLSL, draws a triangle into a framebuffer
-texture, reads the pixels back, and checks a shader info log.
+shared libraries), verifies with `nm` that every dispatch symbol is exported, and
+runs `capi_smoke.c`, a `dlopen` client. It creates a surfaceless context,
+compiles and links GLSL, draws into a framebuffer texture (blended, depth
+tested, instanced, sampled), reads the pixels back, and exercises the queries,
+the Robust getters and transfers, and the stubs.
 
 Notes:
 
 - EGL handles are small integers; GL acts on one process-wide current context.
-- V's export wrappers mishandle more than eight parameters, so `glTexImage2D`
-  is a small C shim (`capi_shim.h`) forwarding to an 8-parameter V export.
-- **WebGL still uses ANGLE.** `webgl/angle_dispatch_darwin.h` requires all 241
-  symbols to resolve, and the remaining 80 (queries, sync, transform feedback,
-  instancing, ES 3 entry points, and the ANGLE extensions) are not exported yet,
-  so this library cannot be selected there.
+- V's export wrappers mishandle more than eight parameters, so entry points
+  with more are small C shims (`capi_shim.h`) that pack arguments into an
+  eight-parameter V export (format and type share a `u64`, outputs travel in an
+  array). `glTexImage2D`, `glTexSubImage2D` and the Robust pixel transfers work
+  this way.
+- ES 3 entry points that have no meaning on an ES 2 context (queries, sync,
+  transform feedback, samplers, uniform blocks, 3D textures, `glBlitFramebuffer`,
+  `glClearBuffer*`, integer attributes and uniforms, buffer mapping, ...) are
+  generated stubs in `capi_es3_shim.h`. They record `INVALID_OPERATION` and
+  return a failure value (`GL_WAIT_FAILED`, `GL_INVALID_INDEX`, null). Compressed
+  texture uploads record `INVALID_ENUM`. WebGL 2 stays unavailable because
+  `eglCreateContext` refuses ES 3.
+- `GL_EXTENSIONS` lists `GL_ANGLE_instanced_arrays` and
+  `GL_OES_vertex_array_object`; `glRequestExtensionANGLE` accepts exactly those.
+- **WebGL still uses ANGLE.** The library can now satisfy the dispatch table,
+  but nothing selects it yet: `webgl` has to load it in place of ANGLE behind an
+  environment variable, and the ANGLE-specific extensions WebGL requests
+  (robust client memory, WebGL compatibility, ...) are not advertised.

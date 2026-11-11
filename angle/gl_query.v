@@ -31,6 +31,9 @@ pub const gl_shading_language_version = u32(0x8B8C)
 
 const max_texture_dimension = 16384
 
+// supported_extensions are the extensions this context implements.
+const supported_extensions = ['GL_ANGLE_instanced_arrays', 'GL_OES_vertex_array_object']
+
 // query_values returns a pname's values as doubles, or none for an unknown
 // pname. Integers are exact; float values keep their precision.
 fn (c &Context) query_values(pname u32) ?[]f64 {
@@ -143,14 +146,14 @@ pub fn (mut c Context) get_floats(pname u32) []f32 {
 }
 
 // get_string answers glGetString. The version is ES 2.0: ES 3.0 entry points
-// are not implemented, so none is advertised. No extensions are exposed.
+// are not implemented, so none is advertised. Only the extensions below are exposed.
 pub fn (mut c Context) get_string(name u32) ?string {
 	return match name {
 		gl_vendor { 'Vox' }
 		gl_renderer { 'Vox angle (' + c.display.backend.name() + ')' }
 		gl_version { 'OpenGL ES 2.0 (Vox angle)' }
 		gl_shading_language_version { 'OpenGL ES GLSL ES 1.00 (Vox angle)' }
-		gl_extensions { '' }
+		gl_extensions { supported_extensions.join(' ') }
 		else {
 			c.set_error(gl_invalid_enum)
 			none
