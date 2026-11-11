@@ -84,6 +84,7 @@ mut:
 	handle u32
 	width  int
 	height int
+	format u32 = gl_depth_component16
 }
 
 // Context is one OpenGL ES context. It owns the GL object namespace and the

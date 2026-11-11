@@ -274,6 +274,9 @@ fn test_renderbuffer_validation() {
 	c.bind_renderbuffer(0x1234, rb)
 	assert c.get_error() == gl_invalid_enum
 	c.bind_renderbuffer(gl_renderbuffer, rb)
+	c.renderbuffer_storage(gl_renderbuffer, gl_depth_component24, 4, 3)
+	assert c.get_error() == gl_no_error
+	assert (c.renderbuffer_parameter(gl_renderbuffer, gl_renderbuffer_depth_size) or { 0 }) == 24
 	c.renderbuffer_storage(gl_renderbuffer, gl_depth_component16, -1, 3)
 	assert c.get_error() == gl_invalid_value
 	c.renderbuffer_storage(gl_renderbuffer, 0x8058, 4, 3) // GL_RGBA8: not implemented

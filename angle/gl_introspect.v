@@ -358,10 +358,10 @@ pub fn (mut c Context) renderbuffer_parameter(target u32, pname u32) ?f64 {
 			f64(rb.height)
 		}
 		gl_renderbuffer_internal_format {
-			f64(if defined { gl_depth_component16 } else { u32(0x8058) })
+			f64(if defined { rb.format } else { u32(0x8058) })
 		}
 		gl_renderbuffer_depth_size {
-			f64(if defined { 16 } else { 0 })
+			f64(if !defined { 0 } else if rb.format == gl_depth_component24 { 24 } else { 16 })
 		}
 		gl_renderbuffer_red_size, gl_renderbuffer_green_size, gl_renderbuffer_blue_size,
 		gl_renderbuffer_alpha_size, gl_renderbuffer_stencil_size {

@@ -22,6 +22,7 @@ pub const gl_cw = u32(0x0900)
 pub const gl_ccw = u32(0x0901)
 pub const gl_renderbuffer = u32(0x8D41)
 pub const gl_depth_component16 = u32(0x81A5)
+pub const gl_depth_component24 = u32(0x81A6)
 pub const gl_depth_attachment = u32(0x8D00)
 pub const gl_depth_func_pname = u32(0x0B74)
 pub const gl_depth_writemask = u32(0x0B72)
@@ -141,7 +142,7 @@ pub fn (mut c Context) bind_renderbuffer(target u32, name u32) {
 }
 
 // renderbuffer_storage allocates a depth renderbuffer. Only
-// DEPTH_COMPONENT16 exists; color and stencil formats are valid GL but not
+// DEPTH_COMPONENT16 and DEPTH_COMPONENT24 exist; color and stencil formats are valid GL but not
 // implemented, so they report INVALID_OPERATION rather than a wrong format.
 pub fn (mut c Context) renderbuffer_storage(target u32, format u32, width int, height int) {
 	if target != gl_renderbuffer {
@@ -157,7 +158,9 @@ pub fn (mut c Context) renderbuffer_storage(target u32, format u32, width int, h
 		c.set_error(gl_invalid_operation)
 		return
 	}
-	if format != gl_depth_component16 {
+	// Both depth sizes share the Depth32Float storage; the format only changes
+	// what the queries report.
+	if format != gl_depth_component16 && format != gl_depth_component24 {
 		c.set_error(gl_invalid_operation)
 		return
 	}
@@ -182,6 +185,7 @@ pub fn (mut c Context) renderbuffer_storage(target u32, format u32, width int, h
 		handle: handle
 		width:  width
 		height: height
+		format: format
 	}
 }
 
