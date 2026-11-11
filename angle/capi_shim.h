@@ -7,6 +7,17 @@
 extern void vox_angle_tex_image_2d(unsigned target, int level, int internal_format, int width, int height,
                                    int border, uint64_t format_type, void *pixels);
 
+extern void vox_angle_tex_sub_image_2d(unsigned target, int level, int x, int y, int width, int height,
+                                       uint64_t format_type, void *pixels);
+
+__attribute__((visibility("default")))
+void glTexSubImage2D(unsigned target, int level, int x, int y, int width, int height, unsigned format,
+                     unsigned type, const void *pixels)
+{
+    vox_angle_tex_sub_image_2d(target, level, x, y, width, height, ((uint64_t)format << 32) | type,
+                               (void *)pixels);
+}
+
 __attribute__((visibility("default")))
 void glTexImage2D(unsigned target, int level, int internal_format, int width, int height, int border,
                   unsigned format, unsigned type, const void *pixels)

@@ -14,6 +14,25 @@ pub const gl_stencil_buffer_bit = u32(0x0400)
 pub const gl_color_buffer_bit = u32(0x4000)
 pub const gl_texture_2d = u32(0x0de1)
 pub const gl_rgba = u32(0x1908)
+pub const gl_texture0 = u32(0x84c0)
+pub const gl_active_texture = u32(0x84e0)
+pub const gl_texture_mag_filter = u32(0x2800)
+pub const gl_texture_min_filter = u32(0x2801)
+pub const gl_texture_wrap_s = u32(0x2802)
+pub const gl_texture_wrap_t = u32(0x2803)
+pub const gl_nearest = u32(0x2600)
+pub const gl_linear = u32(0x2601)
+pub const gl_nearest_mipmap_nearest = u32(0x2700)
+pub const gl_linear_mipmap_nearest = u32(0x2701)
+pub const gl_nearest_mipmap_linear = u32(0x2702)
+pub const gl_linear_mipmap_linear = u32(0x2703)
+pub const gl_repeat = u32(0x2901)
+pub const gl_clamp_to_edge = u32(0x812f)
+pub const gl_mirrored_repeat = u32(0x8370)
+
+// Texture units a fragment shader can sample. Vertex texture fetch is not
+// supported, so MAX_VERTEX_TEXTURE_IMAGE_UNITS is 0.
+pub const max_texture_units = 8
 pub const gl_unsigned_byte = u32(0x1401)
 pub const gl_array_buffer = u32(0x8892)
 pub const gl_element_array_buffer = u32(0x8893)
@@ -41,6 +60,11 @@ mut:
 	handle u32
 	width  int
 	height int
+	// Sampler parameters live on the texture object and survive redefinition.
+	min_filter u32 = gl_nearest_mipmap_linear
+	mag_filter u32 = gl_linear
+	wrap_s     u32 = gl_repeat
+	wrap_t     u32 = gl_repeat
 }
 
 struct GLFramebuffer {
@@ -65,7 +89,10 @@ mut:
 	textures          map[u32]GLTexture
 	framebuffers      map[u32]GLFramebuffer
 	bound_buffers     map[u32]u32
-	bound_textures    map[u32]u32
+	texture_units     [8]u32
+	active_unit       int
+	// black_texture is the 1x1 texture an incomplete sampled texture reads as.
+	black_texture u32
 	bound_framebuffer u32
 	shaders           map[u32]&Shader
 	programs          map[u32]&Program
@@ -128,7 +155,12 @@ fn (mut c Context) release_all() {
 	c.textures = map[u32]GLTexture{}
 	c.framebuffers = map[u32]GLFramebuffer{}
 	c.bound_buffers = map[u32]u32{}
-	c.bound_textures = map[u32]u32{}
+	if c.black_texture != 0 {
+		c.display.backend.destroy_texture(c.black_texture)
+		c.black_texture = 0
+	}
+	c.texture_units = [8]u32{}
+	c.active_unit = 0
 	c.bound_framebuffer = 0
 }
 
@@ -267,7 +299,7 @@ pub fn (mut c Context) bind_texture(target u32, name u32) {
 	if name != 0 && name !in c.textures {
 		c.textures[name] = GLTexture{}
 	}
-	c.bound_textures[target] = name
+	c.texture_units[c.active_unit] = name
 }
 
 // tex_image_2d defines level 0 of the bound 2D texture. Only RGBA with
@@ -290,7 +322,7 @@ pub fn (mut c Context) tex_image_2d(target u32, level int, internal_format u32, 
 		c.set_error(gl_invalid_value)
 		return
 	}
-	name := c.bound_textures[target] or { 0 }
+	name := c.texture_units[c.active_unit]
 	if name == 0 {
 		c.set_error(gl_invalid_operation)
 		return
@@ -299,7 +331,9 @@ pub fn (mut c Context) tex_image_2d(target u32, level int, internal_format u32, 
 	if texture.handle != 0 {
 		c.display.backend.destroy_texture(texture.handle)
 	}
-	texture = GLTexture{}
+	texture.handle = 0
+	texture.width = 0
+	texture.height = 0
 	c.textures[name] = texture
 	if width == 0 || height == 0 {
 		return
@@ -314,11 +348,10 @@ pub fn (mut c Context) tex_image_2d(target u32, level int, internal_format u32, 
 		c.set_error(gl_out_of_memory)
 		return
 	}
-	c.textures[name] = GLTexture{
-		handle: handle
-		width:  width
-		height: height
-	}
+	texture.handle = handle
+	texture.width = width
+	texture.height = height
+	c.textures[name] = texture
 }
 
 pub fn (mut c Context) delete_texture(name u32) {
@@ -330,9 +363,9 @@ pub fn (mut c Context) delete_texture(name u32) {
 		c.display.backend.destroy_texture(texture.handle)
 	}
 	c.textures.delete(name)
-	for target, bound in c.bound_textures {
-		if bound == name {
-			c.bound_textures[target] = 0
+	for unit in 0 .. max_texture_units {
+		if c.texture_units[unit] == name {
+			c.texture_units[unit] = 0
 		}
 	}
 }

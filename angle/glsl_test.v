@@ -160,7 +160,7 @@ fn test_rejects_unsupported_preprocessor_and_samplers() {
 	expect_shader_error('#version 300 es\nvoid main() { gl_Position = vec4(0.0); }', .vertex,
 		'unsupported directive')
 	expect_shader_error('uniform float u; void main() { gl_FragColor = texture2D(u, u); }',
-		.fragment, 'samplers are not supported')
+		.fragment, 'texture2D takes a sampler2D and a vec2')
 }
 
 fn test_rejects_forward_calls_and_missing_main() {
@@ -233,4 +233,46 @@ fn test_pack_floats_pads_vec3_and_matrix_columns() {
 	m2 := pack_floats(.mat2, [f32(1), 2, 3, 4])
 	assert m2.len == 16
 	assert m2[8..12] == f32_bytes_of([f32(3)])
+}
+
+fn test_sampler_rules() {
+	expect_shader_error('uniform sampler2D s; void main() { gl_Position = vec4(0.0); }', .vertex,
+		'not supported in vertex shaders')
+	expect_shader_error('uniform sampler2D s; void main() { gl_FragColor = texture2D(s, 0.5); }',
+		.fragment, 'texture2D takes a sampler2D and a vec2')
+	expect_shader_error('uniform sampler2D s; void main() { gl_FragColor = texture2D(s, vec3(0.5)); }',
+		.fragment, 'texture2D takes a sampler2D and a vec2')
+	expect_shader_error('attribute vec2 a; uniform sampler2D s; void main() { gl_Position = texture2D(s, a); }',
+		.vertex, 'not supported in vertex shaders')
+	expect_shader_error('void main() { sampler2D s; gl_FragColor = vec4(0.0); }', .fragment,
+		'sampler variables must be uniforms')
+	expect_shader_error('uniform sampler2D s; void main() { s = s; gl_FragColor = vec4(0.0); }',
+		.fragment, 'cannot be assigned')
+	expect_shader_error('uniform sampler2D s; void main() { gl_FragColor = vec4(s == s); }',
+		.fragment, 'does not apply')
+	expect_shader_error('uniform sampler2D s; float f(sampler2D t) { return 1.0; } void main() { gl_FragColor = vec4(0.0); }',
+		.fragment, 'sampler parameters are not supported')
+	expect_shader_error('void main() { gl_FragColor = vec4(sampler2D(1)); }', .fragment,
+		'samplers cannot be constructed')
+}
+
+fn test_sampler_emission_and_link_plan() {
+	vs := parse_checked('attribute vec2 p; varying vec2 uv; void main() { uv = p; gl_Position = vec4(p, 0.0, 1.0); }',
+		.vertex)
+	fs := parse_checked('precision mediump float; uniform vec4 tint; uniform sampler2D tex; varying vec2 uv; void main() { gl_FragColor = texture2D(tex, uv) * tint; }',
+		.fragment)
+	plan := plan_link(&vs, &fs) or { panic(err.msg()) }
+	assert plan.uniforms.len == 2
+	assert plan.uniforms[1].name == 'tex' && plan.uniforms[1].ty == .sampler2d
+	// The vertex stage never sees the sampler.
+	assert plan.vs_layout.uniforms.len == 1
+	msl := emit_msl(&fs, .fragment, plan.fs_layout)
+	assert msl.contains('struct Sampler2D { texture2d<float> t; sampler s; };')
+	assert msl.contains('texture2d<float> t_tex [[texture(1)]], sampler s_tex [[sampler(1)]]')
+	assert msl.contains('Sampler2D u_tex{t_tex, s_tex};')
+	assert msl.contains('thread Sampler2D &u_tex')
+	assert msl.contains('u_tex.t.sample(u_tex.s, ')
+	assert msl.contains('constant float4 &u_tint [[buffer(0)]]')
+	vmsl := emit_msl(&vs, .vertex, plan.vs_layout)
+	assert !vmsl.contains('texture2d<float> t_')
 }

@@ -63,6 +63,9 @@ pub fn check_unit(mut unit Unit, stage Stage) ! {
 				if g.ty == .bool_t {
 					return error('line ${g.line}: bool uniforms are not supported')
 				}
+				if g.ty == .sampler2d && stage == .vertex {
+					return error('line ${g.line}: samplers are not supported in vertex shaders')
+				}
 				Storage.uniform_s
 			}
 			.none_q {
@@ -89,6 +92,9 @@ pub fn check_unit(mut unit Unit, stage Stage) ! {
 	for f in unit.funcs {
 		if f.name in c.funcs {
 			return error('line ${f.line}: function "${f.name}" is declared twice')
+		}
+		if f.ret == .sampler2d {
+			return error('line ${f.line}: functions cannot return samplers')
 		}
 		if f.name == 'main' {
 			main_found = true
@@ -121,6 +127,9 @@ fn (mut c Checker) check_func(f Func) ! {
 	for p in f.params {
 		if p.ty == .void_t {
 			return error('line ${f.line}: parameter "${p.name}" cannot be void')
+		}
+		if p.ty == .sampler2d {
+			return error('line ${f.line}: sampler parameters are not supported')
 		}
 		if p.name in c.scopes[0] {
 			return error('line ${f.line}: parameter "${p.name}" is declared twice')
@@ -163,6 +172,9 @@ fn (mut c Checker) stmts(list []Stmt) ! {
 fn (mut c Checker) stmt(s Stmt) ! {
 	match s.kind {
 		.decl_s {
+			if s.ty == .sampler2d {
+				return error('line ${s.line}: sampler variables must be uniforms')
+			}
 			if s.name in c.scopes[c.scopes.len - 1] {
 				return error('line ${s.line}: "${s.name}" is declared twice in one scope')
 			}
@@ -337,7 +349,7 @@ fn (mut c Checker) expr_type(e &Expr) !Ty {
 				}
 				return t
 			}
-			if t == .bool_t || t == .void_t {
+			if t == .bool_t || t == .void_t || t == .sampler2d {
 				return error('line ${e.line}: "${e.text}" needs a numeric operand')
 			}
 			return t
@@ -369,6 +381,9 @@ fn (mut c Checker) expr_type(e &Expr) !Ty {
 				tys << c.expr(a)!
 			}
 			if target := ty_from_name(e.text) {
+				if target == .sampler2d {
+					return error('line ${e.line}: samplers cannot be constructed')
+				}
 				if !ctor_ok(target, tys) {
 					return error('line ${e.line}: no constructor ${target.msl()} takes these arguments')
 				}
@@ -390,7 +405,13 @@ fn (mut c Checker) expr_type(e &Expr) !Ty {
 				return sig.ret
 			}
 			if e.text == 'texture2D' {
-				return error('line ${e.line}: samplers are not supported yet')
+				if c.stage == .vertex {
+					return error('line ${e.line}: texture2D is only available in fragment shaders')
+				}
+				if tys.len != 2 || tys[0] != .sampler2d || tys[1] != .vec2 {
+					return error('line ${e.line}: texture2D takes a sampler2D and a vec2')
+				}
+				return Ty.vec4
 			}
 			return builtin_type(e.text, tys) or {
 				error('line ${e.line}: no function "${e.text}" matches these arguments')
@@ -475,6 +496,9 @@ fn ctor_ok(target Ty, args []Ty) bool {
 // binop_type returns the result type of a binary operator, or none when the
 // operand types do not match GLSL ES 1.00 rules.
 fn binop_type(op string, a Ty, b Ty) ?Ty {
+	if a == .sampler2d || b == .sampler2d {
+		return none
+	}
 	match op {
 		'&&', '||' {
 			if a == .bool_t && b == .bool_t {

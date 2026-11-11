@@ -24,12 +24,16 @@ unsigned vox_angle_mtl_library_create(void *context, const char *source, char *l
 unsigned vox_angle_mtl_pipeline_create(void *context, unsigned vs_library, const char *vs_entry,
                                        unsigned fs_library, const char *fs_entry, int attr_count,
                                        const int *components, const unsigned *strides, char *log, int log_size);
-/* Uniform i is bound to buffer index i in both stages; uniform_bytes holds them back to back.
+/* textures[i] (0 for none) is bound to fragment texture and sampler slot i; sampler_params holds
+ * four ints per slot: min filter, mag filter (0 nearest, 1 linear), wrap S, wrap T (0 repeat,
+ * 1 clamp to edge, 2 mirrored repeat).
+ * Uniform i is bound to buffer index i in both stages; uniform_bytes holds them back to back.
  * viewport and scissor are {x, y, width, height} in GL window coordinates; row y of the
  * GL window is row y of the texture, so they pass through unchanged. */
 int vox_angle_mtl_draw(void *context, unsigned target, unsigned pipeline, int primitive, unsigned start,
                        unsigned count, int attr_count, const unsigned *buffers, const unsigned *offsets,
                        int uniform_count, const unsigned *uniform_sizes, const unsigned char *uniform_bytes,
-                       const int *viewport, const int *scissor);
+                       const int *viewport, const int *scissor, int texture_count,
+                       const unsigned *textures, const int *sampler_params);
 
 #endif

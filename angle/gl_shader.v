@@ -279,6 +279,10 @@ fn f32_bits(v f32) u32 {
 	return unsafe { *(&u32(&v)) }
 }
 
+fn get_u32(data []u8, at int) u32 {
+	return u32(data[at]) | (u32(data[at + 1]) << 8) | (u32(data[at + 2]) << 16) | (u32(data[at + 3]) << 24)
+}
+
 fn put_u32(mut out []u8, at int, bits u32) {
 	out[at] = u8(bits)
 	out[at + 1] = u8(bits >> 8)
@@ -338,11 +342,17 @@ pub fn (mut c Context) uniform_ints(loc int, values []int) {
 	if loc == -1 {
 		return
 	}
-	if loc < 0 || loc >= p.uniforms.len || p.uniforms[loc].ty != .int_t {
+	if loc < 0 || loc >= p.uniforms.len
+		|| (p.uniforms[loc].ty != .int_t && p.uniforms[loc].ty != .sampler2d) {
 		c.set_error(gl_invalid_operation)
 		return
 	}
 	if values.len != 1 {
+		c.set_error(gl_invalid_value)
+		return
+	}
+	// A sampler names a texture unit, which must exist.
+	if p.uniforms[loc].ty == .sampler2d && (values[0] < 0 || values[0] >= max_texture_units) {
 		c.set_error(gl_invalid_value)
 		return
 	}
@@ -480,6 +490,7 @@ pub fn (mut c Context) draw_arrays(mode u32, first int, count int) {
 	if !visible {
 		return
 	}
+	textures, samplers := c.sampler_bindings(p, target) or { return }
 	// A failed GPU submission has no closer GL error than INVALID_OPERATION.
 	c.display.backend.draw(DrawDesc{
 		target:    target.handle
@@ -490,6 +501,8 @@ pub fn (mut c Context) draw_arrays(mode u32, first int, count int) {
 		buffers:   buffers
 		offsets:   offsets
 		uniforms:  p.uniform_data
+		textures:  textures
+		samplers:  samplers
 		viewport:  view
 		scissor:   scis
 	}) or { c.set_error(gl_invalid_operation) }

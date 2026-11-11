@@ -20,6 +20,9 @@ pub const gl_array_buffer_binding = u32(0x8894)
 pub const gl_element_array_buffer_binding = u32(0x8895)
 pub const gl_framebuffer_binding = u32(0x8CA6)
 pub const gl_texture_binding_2d = u32(0x8069)
+pub const gl_max_texture_image_units = u32(0x8872)
+pub const gl_max_combined_texture_image_units = u32(0x8B4D)
+pub const gl_max_vertex_texture_image_units = u32(0x8B4C)
 pub const gl_vendor = u32(0x1F00)
 pub const gl_renderer = u32(0x1F01)
 pub const gl_version = u32(0x1F02)
@@ -71,7 +74,16 @@ fn (c &Context) query_values(pname u32) ?[]f64 {
 			[f64(c.bound_framebuffer)]
 		}
 		gl_texture_binding_2d {
-			[f64(c.bound_textures[gl_texture_2d] or { 0 })]
+			[f64(c.texture_units[c.active_unit])]
+		}
+		gl_active_texture {
+			[f64(gl_texture0 + u32(c.active_unit))]
+		}
+		gl_max_texture_image_units, gl_max_combined_texture_image_units {
+			[f64(max_texture_units)]
+		}
+		gl_max_vertex_texture_image_units {
+			[f64(0)]
 		}
 		else {
 			none

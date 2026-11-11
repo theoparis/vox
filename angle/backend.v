@@ -53,6 +53,12 @@ pub:
 	buffers   []u32
 	offsets   []u32
 	uniforms  [][]u8
+	// textures holds, per uniform slot, the texture a sampler2D reads (0 for
+	// non-samplers); samplers holds four values per slot: minification and
+	// magnification filter (0 nearest, 1 linear), then S and T wrap (0 repeat,
+	// 1 clamp to edge, 2 mirrored repeat).
+	textures []u32
+	samplers []i32
 	// viewport and scissor are {x, y, width, height} in GL window coordinates,
 	// already clipped to the target. The scissor always covers the draw.
 	viewport []i32

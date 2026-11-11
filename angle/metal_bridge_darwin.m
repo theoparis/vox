@@ -295,12 +295,13 @@ unsigned vox_angle_mtl_pipeline_create(void *handle, unsigned vs_library, const 
 int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int primitive, unsigned start,
                        unsigned count, int attr_count, const unsigned *buffers, const unsigned *offsets,
                        int uniform_count, const unsigned *uniform_sizes, const unsigned char *uniform_bytes,
-                       const int *viewport, const int *scissor)
+                       const int *viewport, const int *scissor, int texture_count,
+                       const unsigned *textures, const int *sampler_params)
 {
     VoxAngleMetal *ctx = handle;
     id<MTLTexture> texture = vox_angle_lookup(ctx, target);
     id<MTLRenderPipelineState> state = vox_angle_lookup(ctx, pipeline);
-    if (!texture || !state || count == 0 || attr_count < 0 || attr_count > 16 || uniform_count < 0 || uniform_count > 16) return 0;
+    if (!texture || !state || count == 0 || attr_count < 0 || attr_count > 16 || uniform_count < 0 || uniform_count > 16 || texture_count < 0 || texture_count > 16) return 0;
     /* Empty rectangles are filtered by the caller; reject them here as a safety net. */
     if (viewport[2] <= 0 || viewport[3] <= 0 || scissor[2] <= 0 || scissor[3] <= 0) return 0;
     /* Validate every buffer before encoding so a failure cannot leave an open encoder. */
@@ -308,6 +309,12 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
     for (int i = 0; i < attr_count; i++) {
         vertex_buffers[i] = vox_angle_lookup(ctx, buffers[i]);
         if (!vertex_buffers[i]) return 0;
+    }
+    id<MTLTexture> sampled[16] = { nil };
+    for (int i = 0; i < texture_count; i++) {
+        if (textures[i] == 0) continue;
+        sampled[i] = vox_angle_lookup(ctx, textures[i]);
+        if (!sampled[i]) return 0;
     }
     MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = texture;
@@ -328,6 +335,21 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
         [encoder setVertexBytes:bytes length:uniform_sizes[i] atIndex:(NSUInteger)i];
         [encoder setFragmentBytes:bytes length:uniform_sizes[i] atIndex:(NSUInteger)i];
         bytes += uniform_sizes[i];
+    }
+    for (int i = 0; i < texture_count; i++) {
+        if (!sampled[i]) continue;
+        MTLSamplerDescriptor *sd = [[MTLSamplerDescriptor alloc] init];
+        sd.minFilter = sampler_params[i * 4] ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
+        sd.magFilter = sampler_params[i * 4 + 1] ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
+        MTLSamplerAddressMode modes[3] = { MTLSamplerAddressModeRepeat, MTLSamplerAddressModeClampToEdge,
+                                           MTLSamplerAddressModeMirrorRepeat };
+        sd.sAddressMode = modes[sampler_params[i * 4 + 2] % 3];
+        sd.tAddressMode = modes[sampler_params[i * 4 + 3] % 3];
+        id<MTLSamplerState> sampler = [ctx->device newSamplerStateWithDescriptor:sd];
+        [sd release];
+        [encoder setFragmentTexture:sampled[i] atIndex:(NSUInteger)i];
+        [encoder setFragmentSamplerState:sampler atIndex:(NSUInteger)i];
+        [sampler release];
     }
     [encoder drawPrimitives:(MTLPrimitiveType)primitive vertexStart:start vertexCount:count];
     [encoder endEncoding];

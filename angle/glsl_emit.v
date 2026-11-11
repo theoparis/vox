@@ -24,6 +24,7 @@ pub:
 const msl_prelude = '#include <metal_stdlib>
 using namespace metal;
 template <typename T> T glsl_mod(T x, T y) { return x - y * floor(x / y); }
+struct Sampler2D { texture2d<float> t; sampler s; };
 '
 
 // Emitter writes one checked stage as Metal Shading Language. GLSL main
@@ -90,7 +91,11 @@ fn (mut em Emitter) write_io_structs() {
 fn (em &Emitter) ctx_params() string {
 	mut s := 'thread ${em.in_type()} &_in, thread ${em.out_type()} &_out'
 	for u in em.layout.uniforms {
-		s += ', constant ${u.ty.msl()} &u_${u.name}'
+		if u.ty == .sampler2d {
+			s += ', thread Sampler2D &u_${u.name}'
+		} else {
+			s += ', constant ${u.ty.msl()} &u_${u.name}'
+		}
 	}
 	return s
 }
@@ -132,8 +137,16 @@ fn (mut em Emitter) write_function(f Func) {
 fn (mut em Emitter) write_entry() {
 	mut uparams := ''
 	mut uargs := ''
+	mut setup := ''
 	for u in em.layout.uniforms {
-		uparams += ', constant ${u.ty.msl()} &u_${u.name} [[buffer(${u.loc})]]'
+		if u.ty == .sampler2d {
+			// A sampler uniform is a texture plus a sampler state at the
+			// uniform's slot; the struct is rebuilt so helpers take one value.
+			uparams += ', texture2d<float> t_${u.name} [[texture(${u.loc})]], sampler s_${u.name} [[sampler(${u.loc})]]'
+			setup += '\tSampler2D u_${u.name}{t_${u.name}, s_${u.name}};\n'
+		} else {
+			uparams += ', constant ${u.ty.msl()} &u_${u.name} [[buffer(${u.loc})]]'
+		}
 		uargs += ', u_${u.name}'
 	}
 	if em.stage == .vertex {
@@ -143,7 +156,7 @@ fn (mut em Emitter) write_entry() {
 		return
 	}
 	em.out.write_string('fragment FS_Out fs_entry(FS_In _in [[stage_in]]${uparams}) {\n')
-	em.out.write_string('\tFS_Out _out{};\n\tf_main(_in, _out${uargs});\n\treturn _out;\n}\n')
+	em.out.write_string('${setup}\tFS_Out _out{};\n\tf_main(_in, _out${uargs});\n\treturn _out;\n}\n')
 }
 
 fn (mut em Emitter) stmt(s Stmt, depth int) {
@@ -313,6 +326,9 @@ fn (em &Emitter) call(e &Expr) string {
 		all << args
 		joined := all.join(', ')
 		return 'f_${e.text}(${joined})'
+	}
+	if e.text == 'texture2D' {
+		return '(${args[0]}.t.sample(${args[0]}.s, ${args[1]}))'
 	}
 	name := match e.text {
 		'mod' { 'glsl_mod' }

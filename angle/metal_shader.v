@@ -5,7 +5,7 @@ module angle
 $if macos {
 	fn C.vox_angle_mtl_library_create(voidptr, voidptr, voidptr, i32) u32
 	fn C.vox_angle_mtl_pipeline_create(voidptr, u32, voidptr, u32, voidptr, i32, voidptr, voidptr, voidptr, i32) u32
-	fn C.vox_angle_mtl_draw(voidptr, u32, u32, i32, u32, u32, i32, voidptr, voidptr, i32, voidptr, voidptr, voidptr, voidptr) i32
+	fn C.vox_angle_mtl_draw(voidptr, u32, u32, i32, u32, u32, i32, voidptr, voidptr, i32, voidptr, voidptr, voidptr, voidptr, i32, voidptr, voidptr) i32
 }
 
 // bridge_log turns a fixed-size bridge log buffer into a message.
@@ -61,7 +61,8 @@ pub fn (mut b MetalBackend) draw(desc DrawDesc) ! {
 		}
 		ok := C.vox_angle_mtl_draw(b.context, desc.target, desc.pipeline, desc.primitive, desc.start,
 			desc.count, i32(desc.buffers.len), desc.buffers.data, desc.offsets.data, i32(sizes.len),
-			sizes.data, bytes.data, desc.viewport.data, desc.scissor.data)
+			sizes.data, bytes.data, desc.viewport.data, desc.scissor.data, i32(desc.textures.len),
+			desc.textures.data, desc.samplers.data)
 		if ok == 0 {
 			return error('Metal draw failed')
 		}

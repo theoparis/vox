@@ -12,6 +12,8 @@ Language translator. A backend interface keeps Vulkan possible later.
   semantics, buffers, RGBA8 textures, color-attachment framebuffers, clears,
   `read_pixels`, viewport, scissor, enable/disable, shader and program lifetime,
   and the `glGet*` and `glIs*` queries.
+- `gl_texture.v`: texture units, sampler parameters, `glTexSubImage2D`, texture
+  completeness, and the per-draw resolution of `sampler2D` uniforms.
 - `gl_shader.v`: shader and program objects, uniforms, vertex attributes,
   `draw_arrays`, and a per-program pipeline cache.
 - `glsl_*.v`: GLSL ES 1.00 lexer, parser, checker, MSL emitter and link planner.
@@ -27,17 +29,24 @@ Language translator. A backend interface keeps Vulkan possible later.
 ## Status
 
 Implemented: EGL contexts and pbuffers; GLES 2 buffers, RGBA8 textures,
-framebuffers, clears, read-back, viewport, scissor; GLSL ES 1.00 shaders with
-attributes, uniforms, varyings and float/vector/matrix types; `GL_TRIANGLES`
+framebuffers, clears, read-back, viewport, scissor; eight texture units with
+filter and wrap parameters; GLSL ES 1.00 shaders with attributes, uniforms,
+varyings, float/vector/matrix types, and `sampler2D` with `texture2D` in
+fragment shaders; `GL_TRIANGLES`
 and `GL_TRIANGLE_STRIP` draws.
 
 ## Limits
 
-- Shaders: no `sampler2D` or texture sampling, no `out`/`inout` parameters, no
-  `discard`, no arrays, no preprocessor directives other than `#version 100`,
+- Shaders: samplers are fragment-stage uniforms only (no vertex texture fetch,
+  sampler locals, parameters or arrays), no `texture2DProj`/`Lod`, no
+  `out`/`inout` parameters, no `discard`, no arrays, no preprocessor directives other than `#version 100`,
   no matrix attributes. ES 3.0 is refused at `#version` and at context creation.
-- Draws: float attributes only; no blending, depth or stencil, sampler state,
-  mipmaps, non-RGBA formats, transform feedback, queries or sync objects.
+- Textures: level 0 of RGBA8 2D textures only; no mipmaps, so a texture whose
+  minification filter uses mipmaps (the GL default) is incomplete and samples as
+  opaque black, as does a non-power-of-two texture that is not clamped. Sampling
+  the texture being rendered to is `INVALID_OPERATION`. `glTexSubImage2D` reads
+  back and re-uploads the whole image until the backend gains a region upload.
+- Draws: float attributes only; no blending, depth or stencil, non-RGBA formats, transform feedback, queries or sync objects.
 - Clear with the scissor test enabled returns `INVALID_OPERATION`: a Metal
   load-action clear ignores the scissor, and a masked fill does not exist yet.
 - Only `GL_SCISSOR_TEST` is accepted by `glEnable`/`glDisable`.
@@ -59,7 +68,7 @@ and `GL_TRIANGLE_STRIP` draws.
 
 ## C ABI (shared library)
 
-`capi*.v` exports the core as `libEGL`/`libGLESv2`-style C symbols: 73 of the
+`capi*.v` exports the core as `libEGL`/`libGLESv2`-style C symbols: 77 of the
 241 that `webgl/angle_dispatch_darwin.h` lists. Build and check with
 
     sh tools/test_angle_capi.sh
@@ -75,6 +84,6 @@ Notes:
 - V's export wrappers mishandle more than eight parameters, so `glTexImage2D`
   is a small C shim (`capi_shim.h`) forwarding to an 8-parameter V export.
 - **WebGL still uses ANGLE.** `webgl/angle_dispatch_darwin.h` requires all 241
-  symbols to resolve, and the remaining 168 (queries, sync, transform feedback,
+  symbols to resolve, and the remaining 164 (queries, sync, transform feedback,
   instancing, ES 3 entry points, and the ANGLE extensions) are not exported yet,
   so this library cannot be selected there.

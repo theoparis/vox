@@ -139,11 +139,19 @@ pub fn plan_link(vs &Unit, fs &Unit) !LinkPlan {
 	if uniforms.len > max_uniforms {
 		return error('the program uses more than ${max_uniforms} uniforms')
 	}
+	// Samplers exist only in the fragment stage; the vertex stage keeps their
+	// uniform slots free so both stages share one numbering.
+	mut vs_uniforms := []LinkVar{}
+	for u in uniforms {
+		if u.ty != .sampler2d {
+			vs_uniforms << u
+		}
+	}
 	return LinkPlan{
 		vs_layout: Layout{
 			attrs:    attrs
 			varyings: vs_out
-			uniforms: uniforms
+			uniforms: vs_uniforms
 		}
 		fs_layout: Layout{
 			varyings: fs_out

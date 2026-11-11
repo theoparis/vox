@@ -52,6 +52,10 @@ unsigned char glIsProgram(unsigned);
 unsigned char glIsShader(unsigned);
 void glDeleteProgram(unsigned);
 void glDeleteShader(unsigned);
+void glActiveTexture(unsigned);
+void glTexParameteri(unsigned, unsigned, int);
+void glTexSubImage2D(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);
+void glUniform1i(int, int);
 void glFlush(void);
 void glFinish(void);
 
@@ -105,6 +109,10 @@ int main(int argc, char **argv)
     SYM(glIsShader);
     SYM(glDeleteProgram);
     SYM(glDeleteShader);
+    SYM(glActiveTexture);
+    SYM(glTexParameteri);
+    SYM(glTexSubImage2D);
+    SYM(glUniform1i);
     SYM(glFlush);
     SYM(glFinish);
 
@@ -219,6 +227,53 @@ int main(int argc, char **argv)
     glFlush_fn();
     glFinish_fn();
     CHECK(glGetError_fn() == 0);
+
+    /* Sample a second texture on unit 1 into the framebuffer texture. */
+    const char *tvs_src = "attribute vec2 a_pos; varying vec2 v_uv;"
+                          "void main() { v_uv = a_pos * 0.5 + vec2(0.5); gl_Position = vec4(a_pos, 0.0, 1.0); }";
+    const char *tfs_src = "precision mediump float; uniform sampler2D u_tex; varying vec2 v_uv;"
+                          "void main() { gl_FragColor = texture2D(u_tex, v_uv); }";
+    unsigned tvs = glCreateShader_fn(0x8B31), tfs = glCreateShader_fn(0x8B30);
+    glShaderSource_fn(tvs, 1, &tvs_src, NULL);
+    glShaderSource_fn(tfs, 1, &tfs_src, NULL);
+    glCompileShader_fn(tvs);
+    glCompileShader_fn(tfs);
+    unsigned tprogram = glCreateProgram_fn();
+    glAttachShader_fn(tprogram, tvs);
+    glAttachShader_fn(tprogram, tfs);
+    glLinkProgram_fn(tprogram);
+    glGetProgramiv_fn(tprogram, 0x8B82, &ok);
+    CHECK(ok == 1);
+    unsigned source_texture = 0;
+    glActiveTexture_fn(0x84C0 + 1);
+    glGenTextures_fn(1, &source_texture);
+    glBindTexture_fn(0x0DE1, source_texture);
+    unsigned char texels[4 * 3 * 4];
+    for (int i = 0; i < 12; i++) {
+        texels[i * 4] = (unsigned char)(i * 20); texels[i * 4 + 1] = (unsigned char)(255 - i);
+        texels[i * 4 + 2] = 7; texels[i * 4 + 3] = 255;
+    }
+    glTexImage2D_fn(0x0DE1, 0, 0x1908, 4, 3, 0, 0x1908, 0x1401, NULL);
+    glTexSubImage2D_fn(0x0DE1, 0, 0, 0, 4, 3, 0x1908, 0x1401, texels);
+    glTexParameteri_fn(0x0DE1, 0x2801, 0x2600);
+    glTexParameteri_fn(0x0DE1, 0x2800, 0x2600);
+    glTexParameteri_fn(0x0DE1, 0x2802, 0x812F);
+    glTexParameteri_fn(0x0DE1, 0x2803, 0x812F);
+    CHECK(glGetError_fn() == 0);
+    glUseProgram_fn(tprogram);
+    glUniform1i_fn(glGetUniformLocation_fn(tprogram, "u_tex"), 1);
+    const float quad[] = { -1, -1, 1, -1, -1, 1, 1, 1 };
+    glBufferData_fn(0x8892, sizeof quad, quad, 0x88E4);
+    int tpos = glGetAttribLocation_fn(tprogram, "a_pos");
+    glVertexAttribPointer_fn((unsigned)tpos, 2, 0x1406, 0, 0, NULL);
+    glEnableVertexAttribArray_fn((unsigned)tpos);
+    glDrawArrays_fn(0x0005, 0, 4);
+    CHECK(glGetError_fn() == 0);
+    memset(pixels, 7, sizeof pixels);
+    glReadPixels_fn(0, 0, 4, 3, 0x1908, 0x1401, pixels);
+    CHECK(memcmp(pixels, texels, sizeof texels) == 0);
+    glActiveTexture_fn(0x84C0 + 99);
+    CHECK(glGetError_fn() == 0x0500);
 
     /* A non-zero border is GL_INVALID_VALUE and must not touch the texture. */
     glTexImage2D_fn(0x0DE1, 0, 0x1908, 4, 3, 1, 0x1908, 0x1401, NULL);

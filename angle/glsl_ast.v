@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BSD-2-Clause
 module angle
 
-// Ty is a GLSL ES 1.00 type in the supported subset. Samplers, arrays,
-// structs, and integer vectors are not part of it yet.
+// Ty is a GLSL ES 1.00 type in the supported subset. sampler2D exists only as a
+// fragment-stage uniform; arrays, structs, and integer vectors are not part of it yet.
 pub enum Ty {
 	void_t
 	bool_t
@@ -15,6 +15,7 @@ pub enum Ty {
 	mat2
 	mat3
 	mat4
+	sampler2d
 }
 
 pub fn ty_from_name(s string) ?Ty {
@@ -29,6 +30,7 @@ pub fn ty_from_name(s string) ?Ty {
 		'mat2' { return .mat2 }
 		'mat3' { return .mat3 }
 		'mat4' { return .mat4 }
+		'sampler2D' { return .sampler2d }
 		else {}
 	}
 	return none
@@ -47,6 +49,7 @@ pub fn (t Ty) msl() string {
 		.mat2 { 'float2x2' }
 		.mat3 { 'float3x3' }
 		.mat4 { 'float4x4' }
+		.sampler2d { 'Sampler2D' }
 	}
 }
 
@@ -54,7 +57,7 @@ pub fn (t Ty) msl() string {
 pub fn (t Ty) comps() int {
 	return match t {
 		.void_t { 0 }
-		.bool_t, .int_t, .float_t { 1 }
+		.bool_t, .int_t, .float_t, .sampler2d { 1 }
 		.vec2 { 2 }
 		.vec3 { 3 }
 		.vec4 { 4 }
@@ -101,7 +104,7 @@ pub fn (t Ty) is_gen() bool {
 pub fn (t Ty) msl_size() int {
 	return match t {
 		.void_t { 0 }
-		.bool_t, .int_t, .float_t { 4 }
+		.bool_t, .int_t, .float_t, .sampler2d { 4 }
 		.vec2 { 8 }
 		.vec3, .vec4 { 16 }
 		.mat2 { 16 }

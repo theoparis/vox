@@ -11,4 +11,5 @@ $if vox_angle_capi ? {
 	// V restricts shared-library exports to its own @[export] functions, so the
 	// shim's entry point must be listed explicitly.
 	#flag darwin -Wl,-exported_symbol,_glTexImage2D
+	#flag darwin -Wl,-exported_symbol,_glTexSubImage2D
 }
