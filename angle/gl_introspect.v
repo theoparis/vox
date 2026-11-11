@@ -26,6 +26,7 @@ pub const gl_current_vertex_attrib = u32(0x8626)
 pub const gl_vertex_attrib_array_normalized = u32(0x886A)
 pub const gl_vertex_attrib_array_pointer = u32(0x8645)
 pub const gl_vertex_attrib_array_buffer_binding = u32(0x889F)
+pub const gl_vertex_attrib_array_divisor = u32(0x88FE)
 pub const gl_buffer_size = u32(0x8764)
 pub const gl_buffer_usage = u32(0x8765)
 pub const gl_renderbuffer_width = u32(0x8D42)
@@ -283,6 +284,9 @@ pub fn (mut c Context) vertex_attrib_param(index int, pname u32) ?[]f64 {
 		}
 		gl_vertex_attrib_array_pointer {
 			[f64(a.offset)]
+		}
+		gl_vertex_attrib_array_divisor {
+			[f64(a.divisor)]
 		}
 		gl_current_vertex_attrib {
 			v := c.attrib_const_value(index)

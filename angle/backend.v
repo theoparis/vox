@@ -14,6 +14,10 @@ mut:
 	// create_depth_texture makes a 32-bit float depth attachment; destroy it
 	// with destroy_texture.
 	create_depth_texture(width int, height int) !u32
+	// create_texture_mipmapped makes a color texture with a full mip chain.
+	create_texture_mipmapped(width int, height int) !u32
+	// generate_mipmaps fills levels 1.. of a mipmapped texture from level 0.
+	generate_mipmaps(texture u32) !
 	clear_depth(texture u32, depth f32) !
 	read_texture(texture u32, width int, height int) ![]u8
 	destroy_texture(texture u32)
@@ -46,6 +50,8 @@ pub:
 	// attr_constant[i] is 1 when attribute i reads one constant value instead of
 	// advancing per vertex.
 	attr_constant []i32
+	// attr_divisor[i] is the instance rate of attribute i; 0 means per vertex.
+	attr_divisor []i32
 	// blend is empty when blending is off, otherwise six values: source and
 	// destination factor for RGB then alpha (0 zero, 1 one, 2 src color, 3 one
 	// minus src color, 4 dst color, 5 one minus dst color, 6 src alpha, 7 one
@@ -73,13 +79,16 @@ pub:
 	offsets   []u32
 	uniforms  [][]u8
 	// textures holds, per uniform slot, the texture a sampler2D reads (0 for
-	// non-samplers); samplers holds four values per slot: minification and
+	// non-samplers); samplers holds five values per slot: minification and
 	// magnification filter (0 nearest, 1 linear), then S and T wrap (0 repeat,
-	// 1 clamp to edge, 2 mirrored repeat).
+	// 1 clamp to edge, 2 mirrored repeat), then the mip filter (0 none, 1
+	// nearest, 2 linear).
 	textures []u32
 	samplers []i32
 	// blend_color is the constant blend color {r, g, b, a}.
 	blend_color []f32
+	// instances is the instance count; 1 for an ordinary draw.
+	instances u32 = 1
 	// index_buffer is 0 for a plain draw. Otherwise count indices of
 	// index_type (1 for 16-bit, 2 for 32-bit) are read from it at index_offset
 	// bytes, and start is ignored.

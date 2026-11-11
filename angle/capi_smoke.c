@@ -86,6 +86,14 @@ void glGetUniformfv(unsigned, int, float *);
 void glGetIntegervRobustANGLE(unsigned, int, int *, int *);
 void glStencilFunc(unsigned, int, unsigned);
 void glCopyTexImage2D(unsigned, int, unsigned, int, int, int, int, int);
+void glGenVertexArraysOES(int, unsigned *);
+void glBindVertexArrayOES(unsigned);
+unsigned char glIsVertexArrayOES(unsigned);
+void glDeleteVertexArraysOES(int, const unsigned *);
+void glVertexAttribDivisorANGLE(unsigned, unsigned);
+void glDrawArraysInstancedANGLE(unsigned, int, int, int);
+void glDrawElementsInstancedANGLE(unsigned, int, unsigned, const void *, int);
+void glGenerateMipmap(unsigned);
 void glFlush(void);
 void glFinish(void);
 
@@ -173,6 +181,14 @@ int main(int argc, char **argv)
     SYM(glGetIntegervRobustANGLE);
     SYM(glStencilFunc);
     SYM(glCopyTexImage2D);
+    SYM(glGenVertexArraysOES);
+    SYM(glBindVertexArrayOES);
+    SYM(glIsVertexArrayOES);
+    SYM(glDeleteVertexArraysOES);
+    SYM(glVertexAttribDivisorANGLE);
+    SYM(glDrawArraysInstancedANGLE);
+    SYM(glDrawElementsInstancedANGLE);
+    SYM(glGenerateMipmap);
     SYM(glFlush);
     SYM(glFinish);
 
@@ -349,6 +365,36 @@ int main(int argc, char **argv)
     CHECK(glGetError_fn() == 0x0501);
     glCopyTexImage2D_fn(0x0DE1, 0, 0x1908, 0, 0, 2, 2, 1);
     CHECK(glGetError_fn() == 0x0501);
+
+    /* Vertex arrays, instancing and mipmaps. */
+    unsigned vao = 0;
+    glGenVertexArraysOES_fn(1, &vao);
+    CHECK(!glIsVertexArrayOES_fn(vao));
+    glBindVertexArrayOES_fn(vao);
+    CHECK(glIsVertexArrayOES_fn(vao));
+    glBindBuffer_fn(0x8892, vbo);
+    glVertexAttribPointer_fn((unsigned)pos, 2, 0x1406, 0, 0, NULL);
+    glEnableVertexAttribArray_fn((unsigned)pos);
+    glVertexAttribDivisorANGLE_fn((unsigned)pos, 0);
+    glUseProgram_fn(program);
+    glDisable_fn(0x0BE2);
+    glClearColor_fn(0, 0, 0, 1);
+    glClear_fn(0x4000);
+    glDrawArraysInstancedANGLE_fn(0x0005, 0, 4, 3);
+    CHECK(glGetError_fn() == 0);
+    glBindVertexArrayOES_fn(0);
+    glDeleteVertexArraysOES_fn(1, &vao);
+    CHECK(!glIsVertexArrayOES_fn(vao));
+    unsigned mip_texture = 0;
+    glGenTextures_fn(1, &mip_texture);
+    glActiveTexture_fn(0x84C0);
+    glBindTexture_fn(0x0DE1, mip_texture);
+    glTexImage2D_fn(0x0DE1, 0, 0x1908, 4, 4, 0, 0x1908, 0x1401, NULL);
+    glGenerateMipmap_fn(0x0DE1);
+    CHECK(glGetError_fn() == 0);
+    glTexImage2D_fn(0x0DE1, 0, 0x1908, 4, 3, 0, 0x1908, 0x1401, NULL);
+    glGenerateMipmap_fn(0x0DE1);
+    CHECK(glGetError_fn() == 0x0502); /* NPOT sizes cannot have mipmaps in ES 2 */
 
     /* A broken shader reports a log through the C ABI. */
     const char *bad_src = "void main() { gl_FragColor = vec4(missing); }";

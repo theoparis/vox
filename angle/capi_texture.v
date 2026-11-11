@@ -32,3 +32,9 @@ pub fn capi_gl_tex_sub_image_2d(target u32, level i32, x i32, y i32, w i32, h i3
 	c.tex_sub_image_2d(target, int(level), int(x), int(y), int(w), int(h), u32(format_type >> 32),
 		u32(format_type & 0xffffffff), capi_bytes(pixels, int(w) * int(h) * 4))
 }
+
+@[export: 'glGenerateMipmap']
+pub fn capi_gl_generate_mipmap(target u32) {
+	mut c := capi_ctx() or { return }
+	c.generate_mipmap(target)
+}

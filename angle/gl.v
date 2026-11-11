@@ -67,6 +67,9 @@ mut:
 	mag_filter u32 = gl_linear
 	wrap_s     u32 = gl_repeat
 	wrap_t     u32 = gl_repeat
+	// mipmapped is true when glGenerateMipmap built a chain for the current
+	// level 0. Redefining level 0 discards it.
+	mipmapped bool
 }
 
 struct GLFramebuffer {
@@ -104,6 +107,9 @@ mut:
 	depth             DepthState
 	misc              MiscState
 	attrib_consts     [16]AttribConst
+	vaos              map[u32]VertexArray
+	default_vao       VertexArray
+	bound_vao         u32
 	bound_buffers     map[u32]u32
 	texture_units     [8]u32
 	active_unit       int
@@ -178,6 +184,9 @@ fn (mut c Context) release_all() {
 			c.display.backend.destroy_texture(rb.handle)
 		}
 	}
+	c.vaos = map[u32]VertexArray{}
+	c.default_vao = VertexArray{}
+	c.bound_vao = 0
 	c.renderbuffers = map[u32]GLRenderbuffer{}
 	c.bound_renderbuffer = 0
 	c.framebuffers = map[u32]GLFramebuffer{}
@@ -362,6 +371,7 @@ pub fn (mut c Context) tex_image_2d(target u32, level int, internal_format u32, 
 	texture.handle = 0
 	texture.width = 0
 	texture.height = 0
+	texture.mipmapped = false
 	c.textures[name] = texture
 	if width == 0 || height == 0 {
 		return

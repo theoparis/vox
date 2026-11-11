@@ -124,14 +124,20 @@ fn is_mipmap_filter(v u32) bool {
 	return v != gl_nearest && v != gl_linear
 }
 
-// is_complete follows the GLES 2 sampling rules for a texture with only
-// level 0: it needs storage, a non-mipmap minification filter, and, when its
-// size is not a power of two, clamp-to-edge wrapping.
+// is_complete follows the GLES 2 sampling rules: it needs storage; a mipmap
+// minification filter needs the generated chain; and a size that is not a
+// power of two needs clamp-to-edge wrapping and no mipmaps.
 fn (t &GLTexture) is_complete() bool {
-	if t.handle == 0 || is_mipmap_filter(t.min_filter) {
+	if t.handle == 0 {
 		return false
 	}
-	if !t.is_pot() && (t.wrap_s != gl_clamp_to_edge || t.wrap_t != gl_clamp_to_edge) {
+	mips := is_mipmap_filter(t.min_filter)
+	// A mipmap filter needs the chain; without it only level 0 exists.
+	if mips && !t.mipmapped {
+		return false
+	}
+	// GLES 2 allows non-power-of-two textures only clamped and without mipmaps.
+	if !t.is_pot() && (mips || t.wrap_s != gl_clamp_to_edge || t.wrap_t != gl_clamp_to_edge) {
 		return false
 	}
 	return true
@@ -142,6 +148,15 @@ fn sampler_filter(v u32) i32 {
 		0
 	} else {
 		1
+	}
+}
+
+// sampler_mip_filter is the backend mip filter: 0 samples the base level only.
+fn sampler_mip_filter(v u32) i32 {
+	return match v {
+		gl_nearest_mipmap_nearest, gl_linear_mipmap_nearest { 1 }
+		gl_nearest_mipmap_linear, gl_linear_mipmap_linear { 2 }
+		else { 0 }
 	}
 }
 
@@ -173,7 +188,7 @@ fn (mut c Context) black_handle() ?u32 {
 // when a draw is invalid, such as sampling the texture being rendered to.
 fn (mut c Context) sampler_bindings(p &Program, target RenderTarget) ?([]u32, []i32) {
 	mut textures := []u32{len: p.uniforms.len}
-	mut params := []i32{len: p.uniforms.len * 4}
+	mut params := []i32{len: p.uniforms.len * 5}
 	for i, u in p.uniforms {
 		if u.ty != .sampler2d {
 			continue
@@ -191,19 +206,20 @@ fn (mut c Context) sampler_bindings(p &Program, target RenderTarget) ?([]u32, []
 		}
 		if t.is_complete() {
 			textures[i] = t.handle
-			params[i * 4] = sampler_filter(t.min_filter)
-			params[i * 4 + 1] = sampler_filter(t.mag_filter)
-			params[i * 4 + 2] = sampler_wrap(t.wrap_s)
-			params[i * 4 + 3] = sampler_wrap(t.wrap_t)
+			params[i * 5] = sampler_filter(t.min_filter)
+			params[i * 5 + 1] = sampler_filter(t.mag_filter)
+			params[i * 5 + 2] = sampler_wrap(t.wrap_s)
+			params[i * 5 + 3] = sampler_wrap(t.wrap_t)
+			params[i * 5 + 4] = sampler_mip_filter(t.min_filter)
 		} else {
 			black := c.black_handle() or {
 				c.set_error(gl_out_of_memory)
 				return none
 			}
 			textures[i] = black
-			params[i * 4 + 1] = 0
-			params[i * 4 + 2] = 1
-			params[i * 4 + 3] = 1
+			params[i * 5 + 1] = 0
+			params[i * 5 + 2] = 1
+			params[i * 5 + 3] = 1
 		}
 	}
 	return textures, params
@@ -277,4 +293,47 @@ pub fn (mut c Context) copy_tex_sub_image_2d(target u32, level int, xoffset int,
 // is an invalid enum, as in a context that exposes no compression extension.
 pub fn (mut c Context) compressed_tex_image_2d(target u32, level int, format u32) {
 	c.set_error(gl_invalid_enum)
+}
+
+// generate_mipmap builds the full chain of the bound texture from level 0. The
+// texture is reallocated with a mip chain and level 0 is copied across, so the
+// handle changes but the GL name does not.
+pub fn (mut c Context) generate_mipmap(target u32) {
+	if target != gl_texture_2d {
+		c.set_error(gl_invalid_enum)
+		return
+	}
+	name := c.texture_units[c.active_unit]
+	if name == 0 {
+		c.set_error(gl_invalid_operation)
+		return
+	}
+	mut t := c.textures[name]
+	// Level 0 must be defined, and GLES 2 forbids mipmaps for NPOT sizes.
+	if t.handle == 0 || !t.is_pot() {
+		c.set_error(gl_invalid_operation)
+		return
+	}
+	level0 := c.display.backend.read_texture(t.handle, t.width, t.height) or {
+		c.set_error(gl_out_of_memory)
+		return
+	}
+	fresh := c.display.backend.create_texture_mipmapped(t.width, t.height) or {
+		c.set_error(gl_out_of_memory)
+		return
+	}
+	c.display.backend.upload_texture(fresh, t.width, t.height, level0) or {
+		c.display.backend.destroy_texture(fresh)
+		c.set_error(gl_out_of_memory)
+		return
+	}
+	c.display.backend.generate_mipmaps(fresh) or {
+		c.display.backend.destroy_texture(fresh)
+		c.set_error(gl_out_of_memory)
+		return
+	}
+	c.display.backend.destroy_texture(t.handle)
+	t.handle = fresh
+	t.mipmapped = true
+	c.textures[name] = t
 }

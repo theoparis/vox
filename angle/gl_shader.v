@@ -22,6 +22,8 @@ pub mut:
 	typ     u32
 	stride  int
 	offset  int
+	// divisor is 0 for per-vertex data, else the instance rate (ANGLE_instanced_arrays).
+	divisor int
 }
 
 // ---- Shader and program objects -------------------------------------------
@@ -250,6 +252,7 @@ pub fn (mut c Context) vertex_attrib_pointer(index int, size int, typ u32, strid
 		typ:     typ
 		stride:  stride
 		offset:  offset
+		divisor: c.attribs[index].divisor
 	}
 }
 
@@ -421,7 +424,7 @@ pub fn (mut c Context) draw_arrays(mode u32, first int, count int) {
 		c.set_error(gl_invalid_value)
 		return
 	}
-	c.draw_impl(mode, first, count, 0, 0)
+	c.draw_impl(mode, first, count, 0, 0, 1)
 }
 
 // draw_elements draws count indices read from the bound ELEMENT_ARRAY_BUFFER
@@ -437,7 +440,37 @@ pub fn (mut c Context) draw_elements(mode u32, count int, typ u32, offset int) {
 		c.set_error(gl_invalid_value)
 		return
 	}
-	c.draw_impl(mode, 0, count, typ, offset)
+	c.draw_impl(mode, 0, count, typ, offset, 1)
+}
+
+// draw_arrays_instanced draws instances copies; attributes with a divisor
+// advance once per divisor instances.
+pub fn (mut c Context) draw_arrays_instanced(mode u32, first int, count int, instances int) {
+	if first < 0 || count < 0 || instances < 0 {
+		c.set_error(gl_invalid_value)
+		return
+	}
+	c.draw_impl(mode, first, count, 0, 0, instances)
+}
+
+pub fn (mut c Context) draw_elements_instanced(mode u32, count int, typ u32, offset int, instances int) {
+	if typ != gl_unsigned_byte && typ != gl_unsigned_short && typ != gl_unsigned_int {
+		c.set_error(gl_invalid_enum)
+		return
+	}
+	if count < 0 || offset < 0 || instances < 0 {
+		c.set_error(gl_invalid_value)
+		return
+	}
+	c.draw_impl(mode, 0, count, typ, offset, instances)
+}
+
+pub fn (mut c Context) vertex_attrib_divisor(index int, divisor int) {
+	if index < 0 || index >= max_attribs || divisor < 0 {
+		c.set_error(gl_invalid_value)
+		return
+	}
+	c.attribs[index].divisor = divisor
 }
 
 fn index_size(typ u32) int {
@@ -449,7 +482,7 @@ fn index_size(typ u32) int {
 }
 
 // draw_impl is the shared draw path; index_type 0 means a non-indexed draw.
-fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, index_offset int) {
+fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, index_offset int, instances int) {
 	prim := gl_primitive(mode) or {
 		if mode == gl_triangle_fan || mode == gl_line_loop {
 			c.set_error(gl_invalid_operation)
@@ -467,7 +500,7 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 		c.set_error(gl_invalid_operation)
 		return
 	}
-	if count == 0 {
+	if count == 0 || instances == 0 {
 		return
 	}
 	target := c.resolve_target() or {
@@ -529,6 +562,7 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 	mut comps := []i32{}
 	mut strides := []u32{}
 	mut constants := []i32{}
+	mut divisors := []i32{}
 	for a in p.attrs {
 		ptr := c.attribs[a.loc]
 		if !ptr.enabled {
@@ -555,6 +589,7 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 			comps << i32(a.ty.comps())
 			strides << u32(16)
 			constants << 1
+			divisors << 0
 			continue
 		}
 		if ptr.buffer == 0 || ptr.size != a.ty.comps() || ptr.buffer !in c.buffers {
@@ -564,7 +599,9 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 		}
 		buf := c.buffers[ptr.buffer]
 		stride := if ptr.stride == 0 { ptr.size * 4 } else { ptr.stride }
-		need := ptr.offset + (vertex_end - 1) * stride + ptr.size * 4
+		// An instanced attribute advances once per divisor instances.
+		last := if ptr.divisor > 0 { (instances - 1) / ptr.divisor } else { vertex_end - 1 }
+		need := ptr.offset + last * stride + ptr.size * 4
 		if buf.handle == 0 || need > buf.size {
 			c.set_error(gl_invalid_operation)
 			c.release_temps(temps)
@@ -575,11 +612,12 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 		comps << i32(a.ty.comps())
 		strides << u32(stride)
 		constants << 0
+		divisors << i32(ptr.divisor)
 	}
 	mut key := c.blend_key() + c.depth_key(target) + '|'
 	for i, n in comps {
 		stride := strides[i]
-		key += '${n}:${stride}:${constants[i]},'
+		key += '${n}:${stride}:${constants[i]}:${divisors[i]},'
 	}
 	pipeline := if key in p.pipelines {
 		p.pipelines[key]
@@ -592,6 +630,7 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 			attr_components: comps
 			attr_strides:    strides
 			attr_constant:   constants
+			attr_divisor:    divisors
 			blend:           c.blend_codes()
 			write_mask:      c.mask_bits()
 			has_depth:       target.depth != 0
@@ -634,6 +673,7 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 		textures:     textures
 		samplers:     samplers
 		blend_color:  [c.blend.color[0], c.blend.color[1], c.blend.color[2], c.blend.color[3]]
+		instances:    u32(instances)
 		index_buffer: index_handle
 		index_type:   if isz == 4 { 2 } else if isz > 0 { 1 } else { 0 }
 		index_offset: if index_type == gl_unsigned_byte { u32(0) } else { u32(index_offset) }

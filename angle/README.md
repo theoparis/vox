@@ -12,6 +12,8 @@ Language translator. A backend interface keeps Vulkan possible later.
   semantics, buffers, RGBA8 textures, color-attachment framebuffers, clears,
   `read_pixels`, viewport, scissor, enable/disable, shader and program lifetime,
   and the `glGet*` and `glIs*` queries.
+- `gl_vao.v`: vertex array objects; the bound array's pointers live in the
+  context so draws read them directly, and binding swaps the stored copy.
 - `gl_misc.v`, `gl_introspect.v`: hints, line width, polygon offset, pixel
   storage, stencil state, generic (constant) vertex attributes, program and
   shader parameters, active attribute/uniform queries, `glBindAttribLocation`
@@ -39,7 +41,7 @@ Language translator. A backend interface keeps Vulkan possible later.
 
 Implemented: EGL contexts and pbuffers; GLES 2 buffers, RGBA8 textures,
 framebuffers, clears, read-back, viewport, scissor; blending and color mask; depth test, face culling and depth
-renderbuffers; `glDrawElements` with 8/16/32-bit indices;
+renderbuffers; instanced draws and vertex arrays; mipmaps; `glDrawElements` with 8/16/32-bit indices;
 eight texture units with
 filter and wrap parameters; GLSL ES 1.00 shaders with attributes, uniforms,
 varyings, float/vector/matrix types, and `sampler2D` with `texture2D` in
@@ -52,9 +54,12 @@ and `GL_TRIANGLE_STRIP` draws.
   sampler locals, parameters or arrays), no `texture2DProj`/`Lod`, no
   `out`/`inout` parameters, no `discard`, no arrays, no preprocessor directives other than `#version 100`,
   no matrix attributes. ES 3.0 is refused at `#version` and at context creation.
-- Textures: level 0 of RGBA8 2D textures only; no mipmaps, so a texture whose
-  minification filter uses mipmaps (the GL default) is incomplete and samples as
-  opaque black, as does a non-power-of-two texture that is not clamped. Sampling
+- Textures: RGBA8 2D textures. Only level 0 can be defined; `glGenerateMipmap`
+  builds the chain (power-of-two sizes only, as in GLES 2) by reallocating the
+  texture with levels. A mipmap minification filter without a chain, or on a
+  non-power-of-two texture, makes the texture incomplete: it samples as opaque
+  black, as does a non-power-of-two texture that is not clamped. Redefining
+  level 0 discards the chain. Sampling
   the texture being rendered to is `INVALID_OPERATION`. `glTexSubImage2D` reads
   back and re-uploads the whole image until the backend gains a region upload.
 - Stencil: there is no stencil buffer. `glStencil*` validate their enums and
@@ -97,7 +102,7 @@ and `GL_TRIANGLE_STRIP` draws.
 
 ## C ABI (shared library)
 
-`capi*.v` exports the core as `libEGL`/`libGLESv2`-style C symbols: 146 of the
+`capi*.v` exports the core as `libEGL`/`libGLESv2`-style C symbols: 161 of the
 241 that `webgl/angle_dispatch_darwin.h` lists. Build and check with
 
     sh tools/test_angle_capi.sh
@@ -113,6 +118,6 @@ Notes:
 - V's export wrappers mishandle more than eight parameters, so `glTexImage2D`
   is a small C shim (`capi_shim.h`) forwarding to an 8-parameter V export.
 - **WebGL still uses ANGLE.** `webgl/angle_dispatch_darwin.h` requires all 241
-  symbols to resolve, and the remaining 95 (queries, sync, transform feedback,
+  symbols to resolve, and the remaining 80 (queries, sync, transform feedback,
   instancing, ES 3 entry points, and the ANGLE extensions) are not exported yet,
   so this library cannot be selected there.

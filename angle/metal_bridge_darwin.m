@@ -112,7 +112,7 @@ int vox_angle_mtl_buffer_read(void *handle, unsigned resource, long long offset,
     return 1;
 }
 
-unsigned vox_angle_mtl_texture_create(void *handle, int width, int height)
+unsigned vox_angle_mtl_texture_create(void *handle, int width, int height, int mipmapped)
 {
     VoxAngleMetal *ctx = handle;
     if (!ctx || width <= 0 || height <= 0) return 0;
@@ -120,7 +120,7 @@ unsigned vox_angle_mtl_texture_create(void *handle, int width, int height)
         [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
                                                            width:(NSUInteger)width
                                                           height:(NSUInteger)height
-                                                       mipmapped:NO];
+                                                       mipmapped:mipmapped ? YES : NO];
     descriptor.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
     descriptor.storageMode = MTLStorageModePrivate;
     id<MTLTexture> texture = [ctx->device newTextureWithDescriptor:descriptor];
@@ -179,6 +179,18 @@ int vox_angle_mtl_texture_clear(void *handle, unsigned resource, float r, float 
     id<MTLCommandBuffer> command = [ctx->queue commandBuffer];
     id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
     [encoder endEncoding];
+    return vox_angle_submit_and_wait(ctx, command);
+}
+
+int vox_angle_mtl_generate_mipmaps(void *handle, unsigned resource)
+{
+    VoxAngleMetal *ctx = handle;
+    id<MTLTexture> texture = vox_angle_lookup(ctx, resource);
+    if (!texture) return 0;
+    id<MTLCommandBuffer> command = [ctx->queue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+    [blit generateMipmapsForTexture:texture];
+    [blit endEncoding];
     return vox_angle_submit_and_wait(ctx, command);
 }
 
@@ -273,7 +285,7 @@ unsigned vox_angle_mtl_library_create(void *handle, const char *source, char *lo
  * spaced float attribute of 1 to 4 components at the given stride. */
 unsigned vox_angle_mtl_pipeline_create(void *handle, unsigned vs_library, const char *vs_entry,
                                        unsigned fs_library, const char *fs_entry, int attr_count,
-                                       const int *components, const unsigned *strides, const int *constant, int blend_count,
+                                       const int *components, const unsigned *strides, const int *constant, const int *divisor, int blend_count,
                                        const int *blend, int write_mask, int has_depth, char *log, int log_size)
 {
     VoxAngleMetal *ctx = handle;
@@ -342,8 +354,16 @@ unsigned vox_angle_mtl_pipeline_create(void *handle, unsigned vs_library, const 
         layout.attributes[i].offset = 0;
         layout.attributes[i].bufferIndex = 16 + (NSUInteger)i;
         layout.layouts[16 + i].stride = strides[i];
-        layout.layouts[16 + i].stepFunction = constant[i] ? MTLVertexStepFunctionConstant : MTLVertexStepFunctionPerVertex;
-        layout.layouts[16 + i].stepRate = constant[i] ? 0 : 1;
+        if (constant[i]) {
+            layout.layouts[16 + i].stepFunction = MTLVertexStepFunctionConstant;
+            layout.layouts[16 + i].stepRate = 0;
+        } else if (divisor[i] > 0) {
+            layout.layouts[16 + i].stepFunction = MTLVertexStepFunctionPerInstance;
+            layout.layouts[16 + i].stepRate = (NSUInteger)divisor[i];
+        } else {
+            layout.layouts[16 + i].stepFunction = MTLVertexStepFunctionPerVertex;
+            layout.layouts[16 + i].stepRate = 1;
+        }
     }
     desc.vertexDescriptor = layout;
     NSError *error = nil;
@@ -363,7 +383,7 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
                        const unsigned *textures, const int *sampler_params, const float *blend_color,
                        unsigned index_buffer, int index_type, unsigned index_offset, unsigned depth_texture,
                        int depth_func, int depth_write, const float *depth_range, int cull, int front_ccw,
-                       const float *depth_bias)
+                       const float *depth_bias, unsigned instance_count)
 {
     VoxAngleMetal *ctx = handle;
     id<MTLTexture> texture = vox_angle_lookup(ctx, target);
@@ -437,12 +457,15 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
     for (int i = 0; i < texture_count; i++) {
         if (!sampled[i]) continue;
         MTLSamplerDescriptor *sd = [[MTLSamplerDescriptor alloc] init];
-        sd.minFilter = sampler_params[i * 4] ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
-        sd.magFilter = sampler_params[i * 4 + 1] ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
+        sd.minFilter = sampler_params[i * 5] ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
+        sd.magFilter = sampler_params[i * 5 + 1] ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
         MTLSamplerAddressMode modes[3] = { MTLSamplerAddressModeRepeat, MTLSamplerAddressModeClampToEdge,
                                            MTLSamplerAddressModeMirrorRepeat };
-        sd.sAddressMode = modes[sampler_params[i * 4 + 2] % 3];
-        sd.tAddressMode = modes[sampler_params[i * 4 + 3] % 3];
+        sd.sAddressMode = modes[sampler_params[i * 5 + 2] % 3];
+        sd.tAddressMode = modes[sampler_params[i * 5 + 3] % 3];
+        /* 0: base level only, 1: nearest mip level, 2: blend two levels. */
+        sd.mipFilter = sampler_params[i * 5 + 4] == 2 ? MTLSamplerMipFilterLinear
+                     : sampler_params[i * 5 + 4] == 1 ? MTLSamplerMipFilterNearest : MTLSamplerMipFilterNotMipmapped;
         id<MTLSamplerState> sampler = [ctx->device newSamplerStateWithDescriptor:sd];
         [sd release];
         [encoder setFragmentTexture:sampled[i] atIndex:(NSUInteger)i];
@@ -455,9 +478,10 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
                             indexCount:count
                              indexType:index_type == 1 ? MTLIndexTypeUInt16 : MTLIndexTypeUInt32
                            indexBuffer:indices
-                     indexBufferOffset:index_offset];
+                     indexBufferOffset:index_offset
+                         instanceCount:instance_count];
     } else {
-        [encoder drawPrimitives:(MTLPrimitiveType)primitive vertexStart:start vertexCount:count];
+        [encoder drawPrimitives:(MTLPrimitiveType)primitive vertexStart:start vertexCount:count instanceCount:instance_count];
     }
     [encoder endEncoding];
     return vox_angle_submit_and_wait(ctx, command);

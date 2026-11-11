@@ -16,7 +16,8 @@ fn C.vox_angle_mtl_release(voidptr, u32)
 fn C.vox_angle_mtl_buffer_create(voidptr, i64) u32
 fn C.vox_angle_mtl_buffer_write(voidptr, u32, i64, voidptr, i64) int
 fn C.vox_angle_mtl_buffer_read(voidptr, u32, i64, voidptr, i64) int
-fn C.vox_angle_mtl_texture_create(voidptr, int, int) u32
+fn C.vox_angle_mtl_texture_create(voidptr, int, int, int) u32
+fn C.vox_angle_mtl_generate_mipmaps(voidptr, u32) int
 fn C.vox_angle_mtl_depth_create(voidptr, int, int) u32
 fn C.vox_angle_mtl_depth_clear(voidptr, u32, f32) int
 fn C.vox_angle_mtl_texture_clear(voidptr, u32, f32, f32, f32, f32) int
@@ -59,7 +60,7 @@ pub fn (mut b MetalBackend) create_texture(width int, height int) !u32 {
 		if width <= 0 || height <= 0 {
 			return error('texture dimensions must be positive')
 		}
-		handle := C.vox_angle_mtl_texture_create(b.context, width, height)
+		handle := C.vox_angle_mtl_texture_create(b.context, width, height, 0)
 		if handle == 0 {
 			return error('Metal texture allocation failed')
 		}
@@ -86,6 +87,31 @@ pub fn (mut b MetalBackend) clear_texture(texture u32, r f32, g f32, b_ f32, a f
 	$if macos {
 		if C.vox_angle_mtl_texture_clear(b.context, texture, r, g, b_, a) == 0 {
 			return error('Metal clear failed')
+		}
+	} $else {
+		return error('the Metal backend requires macOS')
+	}
+}
+
+pub fn (mut b MetalBackend) create_texture_mipmapped(width int, height int) !u32 {
+	$if macos {
+		if width <= 0 || height <= 0 {
+			return error('texture dimensions must be positive')
+		}
+		handle := C.vox_angle_mtl_texture_create(b.context, width, height, 1)
+		if handle == 0 {
+			return error('Metal texture allocation failed')
+		}
+		return handle
+	} $else {
+		return error('the Metal backend requires macOS')
+	}
+}
+
+pub fn (mut b MetalBackend) generate_mipmaps(texture u32) ! {
+	$if macos {
+		if C.vox_angle_mtl_generate_mipmaps(b.context, texture) == 0 {
+			return error('Metal mipmap generation failed')
 		}
 	} $else {
 		return error('the Metal backend requires macOS')

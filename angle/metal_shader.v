@@ -4,8 +4,8 @@ module angle
 
 $if macos {
 	fn C.vox_angle_mtl_library_create(voidptr, voidptr, voidptr, i32) u32
-	fn C.vox_angle_mtl_pipeline_create(voidptr, u32, voidptr, u32, voidptr, i32, voidptr, voidptr, voidptr, i32, voidptr, i32, i32, voidptr, i32) u32
-	fn C.vox_angle_mtl_draw(voidptr, u32, u32, i32, u32, u32, i32, voidptr, voidptr, i32, voidptr, voidptr, voidptr, voidptr, i32, voidptr, voidptr, voidptr, u32, i32, u32, u32, i32, i32, voidptr, i32, i32, voidptr) i32
+	fn C.vox_angle_mtl_pipeline_create(voidptr, u32, voidptr, u32, voidptr, i32, voidptr, voidptr, voidptr, voidptr, i32, voidptr, i32, i32, voidptr, i32) u32
+	fn C.vox_angle_mtl_draw(voidptr, u32, u32, i32, u32, u32, i32, voidptr, voidptr, i32, voidptr, voidptr, voidptr, voidptr, i32, voidptr, voidptr, voidptr, u32, i32, u32, u32, i32, i32, voidptr, i32, i32, voidptr, u32) i32
 }
 
 // bridge_log turns a fixed-size bridge log buffer into a message.
@@ -35,7 +35,7 @@ pub fn (mut b MetalBackend) create_pipeline(desc PipelineDesc) !u32 {
 		mut log := []u8{len: 1024}
 		handle := C.vox_angle_mtl_pipeline_create(b.context, desc.vs_lib, desc.vs_fn.str, desc.fs_lib,
 			desc.fs_fn.str, i32(desc.attr_components.len), desc.attr_components.data, desc.attr_strides.data,
-			desc.attr_constant.data, i32(desc.blend.len), desc.blend.data, desc.write_mask, i32(desc.has_depth), log.data, 1024)
+			desc.attr_constant.data, desc.attr_divisor.data, i32(desc.blend.len), desc.blend.data, desc.write_mask, i32(desc.has_depth), log.data, 1024)
 		if handle == 0 {
 			msg := bridge_log(log)
 			if msg.len == 0 {
@@ -64,7 +64,8 @@ pub fn (mut b MetalBackend) draw(desc DrawDesc) ! {
 			sizes.data, bytes.data, desc.viewport.data, desc.scissor.data, i32(desc.textures.len),
 			desc.textures.data, desc.samplers.data, desc.blend_color.data, desc.index_buffer,
 			desc.index_type, desc.index_offset, desc.depth_texture, desc.depth_func, i32(desc.depth_write),
-			desc.depth_range.data, desc.cull, i32(desc.front_ccw), desc.depth_bias.data)
+			desc.depth_range.data, desc.cull, i32(desc.front_ccw), desc.depth_bias.data,
+			desc.instances)
 		if ok == 0 {
 			return error('Metal draw failed')
 		}
