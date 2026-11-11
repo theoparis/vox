@@ -212,6 +212,34 @@ int main(int argc, char **argv)
     CHECK(pixels[0] == 255 && pixels[1] == 0 && pixels[3] == 255);                       /* bottom-left covered */
     CHECK(pixels[44] == 0 && pixels[45] == 0 && pixels[46] == 0 && pixels[47] == 255);    /* top-right clear */
 
+    /* Indexed, blended draw: half-transparent red over the sampled image, with green masked off. */
+    glUseProgram_fn(program);
+    glBindBuffer_fn(0x8892, vbo);
+    glVertexAttribPointer_fn((unsigned)pos, 2, 0x1406, 0, 0, NULL);
+    const float corners[] = { -1, -1, 1, -1, -1, 1, 1, 1 };
+    glBufferData_fn(0x8892, sizeof corners, corners, 0x88E4);
+    unsigned ebo = 0;
+    glGenBuffers_fn(1, &ebo);
+    glBindBuffer_fn(0x8893, ebo);
+    const unsigned short indices[] = { 0, 1, 2, 2, 1, 3 };
+    glBufferData_fn(0x8893, sizeof indices, indices, 0x88E4);
+    glUniform4f_fn(glGetUniformLocation_fn(program, "u_color"), 1, 0, 0, 0.5f);
+    glUniform2fv_fn(glGetUniformLocation_fn(program, "u_offset"), 1, offset);
+    glClearColor_fn(0, 0, 1, 1);
+    glClear_fn(0x4000);
+    glEnable_fn(0x0BE2);
+    CHECK(glIsEnabled_fn(0x0BE2));
+    glBlendFunc_fn(0x0302, 0x0303);
+    glDrawElements_fn(0x0004, 6, 0x1403, NULL);
+    CHECK(glGetError_fn() == 0);
+    glReadPixels_fn(0, 0, 4, 3, 0x1908, 0x1401, pixels);
+    CHECK(pixels[0] >= 127 && pixels[0] <= 128 && pixels[1] == 0 && pixels[2] >= 127 && pixels[2] <= 128);
+    glDisable_fn(0x0BE2);
+    glColorMask_fn(1, 0, 1, 1);
+    glClear_fn(0x4000);
+    CHECK(glGetError_fn() == 0x0502); /* a masked clear is refused */
+    glColorMask_fn(1, 1, 1, 1);
+
     /* A broken shader reports a log through the C ABI. */
     const char *bad_src = "void main() { gl_FragColor = vec4(missing); }";
     unsigned bad = glCreateShader_fn(0x8B30);
@@ -290,33 +318,6 @@ int main(int argc, char **argv)
     CHECK(memcmp(pixels, texels, sizeof texels) == 0);
     glActiveTexture_fn(0x84C0 + 99);
     CHECK(glGetError_fn() == 0x0500);
-
-    /* Indexed, blended draw: half-transparent red over the sampled image, with green masked off. */
-    glUseProgram_fn(program);
-    glBindBuffer_fn(0x8892, vbo);
-    glVertexAttribPointer_fn((unsigned)pos, 2, 0x1406, 0, 0, NULL);
-    glBufferData_fn(0x8892, sizeof quad, quad, 0x88E4);
-    unsigned ebo = 0;
-    glGenBuffers_fn(1, &ebo);
-    glBindBuffer_fn(0x8893, ebo);
-    const unsigned short indices[] = { 0, 1, 2, 2, 1, 3 };
-    glBufferData_fn(0x8893, sizeof indices, indices, 0x88E4);
-    glUniform4f_fn(glGetUniformLocation_fn(program, "u_color"), 1, 0, 0, 0.5f);
-    glUniform2fv_fn(glGetUniformLocation_fn(program, "u_offset"), 1, offset);
-    glClearColor_fn(0, 0, 1, 1);
-    glClear_fn(0x4000);
-    glEnable_fn(0x0BE2);
-    CHECK(glIsEnabled_fn(0x0BE2));
-    glBlendFunc_fn(0x0302, 0x0303);
-    glDrawElements_fn(0x0004, 6, 0x1403, NULL);
-    CHECK(glGetError_fn() == 0);
-    glReadPixels_fn(0, 0, 4, 3, 0x1908, 0x1401, pixels);
-    CHECK(pixels[0] >= 127 && pixels[0] <= 128 && pixels[1] == 0 && pixels[2] >= 127 && pixels[2] <= 128);
-    glDisable_fn(0x0BE2);
-    glColorMask_fn(1, 0, 1, 1);
-    glClear_fn(0x4000);
-    CHECK(glGetError_fn() == 0x0502); /* a masked clear is refused */
-    glColorMask_fn(1, 1, 1, 1);
 
     /* A non-zero border is GL_INVALID_VALUE and must not touch the texture. */
     glTexImage2D_fn(0x0DE1, 0, 0x1908, 4, 3, 1, 0x1908, 0x1401, NULL);

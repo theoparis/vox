@@ -72,8 +72,8 @@ fn (c &Context) query_values(pname u32) ?[]f64 {
 		gl_blend_equation_rgb { [f64(c.blend.eq_rgb)] }
 		gl_blend_equation_alpha { [f64(c.blend.eq_alpha)] }
 		gl_color_writemask {
-			[f64(int(c.blend.mask[0])), f64(int(c.blend.mask[1])), f64(int(c.blend.mask[2])),
-				f64(int(c.blend.mask[3]))]
+			[f64(1 - int(c.blend.masked[0])), f64(1 - int(c.blend.masked[1])),
+				f64(1 - int(c.blend.masked[2])), f64(1 - int(c.blend.masked[3]))]
 		}
 		gl_current_program {
 			[f64(c.current_program)]

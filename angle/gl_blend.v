@@ -45,7 +45,9 @@ pub mut:
 	eq_rgb    u32 = gl_func_add
 	eq_alpha  u32 = gl_func_add
 	color     [4]f32
-	mask      [4]bool = [true, true, true, true]!
+	// masked is true for a channel whose writes are disabled, so the zero value
+	// is the GL default of every channel enabled.
+	masked [4]bool
 }
 
 // factor_code maps a GL blend factor to the backend numbering used in
@@ -141,18 +143,18 @@ fn clamp01(v f32) f32 {
 }
 
 pub fn (mut c Context) color_mask(r bool, g bool, b bool, a bool) {
-	c.blend.mask = [r, g, b, a]!
+	c.blend.masked = [!r, !g, !b, !a]!
 }
 
 fn (b &BlendState) full_mask() bool {
-	return b.mask[0] && b.mask[1] && b.mask[2] && b.mask[3]
+	return !b.masked[0] && !b.masked[1] && !b.masked[2] && !b.masked[3]
 }
 
 // blend_key identifies the blend configuration inside the pipeline cache.
 // With blending off only the write mask matters.
 fn (c &Context) blend_key() string {
 	b := c.blend
-	mask := '${int(b.mask[0])}${int(b.mask[1])}${int(b.mask[2])}${int(b.mask[3])}'
+	mask := '${int(b.masked[0])}${int(b.masked[1])}${int(b.masked[2])}${int(b.masked[3])}'
 	if !c.blend_enabled {
 		return 'off:${mask}'
 	}
@@ -175,7 +177,7 @@ fn (c &Context) blend_codes() []i32 {
 fn (c &Context) mask_bits() i32 {
 	mut bits := i32(0)
 	for i in 0 .. 4 {
-		if c.blend.mask[i] {
+		if !c.blend.masked[i] {
 			bits |= i32(1) << i
 		}
 	}
