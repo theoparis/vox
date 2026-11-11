@@ -126,7 +126,7 @@ pub fn (mut c Context) link_program(prog u32) bool {
 		p.log = 'fragment shader: ${fs.log}'
 		return false
 	}
-	plan := plan_link(&vs.unit, &fs.unit) or {
+	plan := plan_link_with(&vs.unit, &fs.unit, p.bound_attribs) or {
 		p.log = err.msg()
 		return false
 	}
@@ -328,7 +328,7 @@ pub fn (mut c Context) uniform_floats(loc int, values []f32) {
 		return
 	}
 	if values.len != ty.comps() {
-		c.set_error(gl_invalid_value)
+		c.set_error(gl_invalid_operation)
 		return
 	}
 	p.uniform_data[loc] = pack_floats(ty, values)
@@ -348,7 +348,7 @@ pub fn (mut c Context) uniform_ints(loc int, values []int) {
 		return
 	}
 	if values.len != 1 {
-		c.set_error(gl_invalid_value)
+		c.set_error(gl_invalid_operation)
 		return
 	}
 	// A sampler names a texture unit, which must exist.
@@ -381,7 +381,7 @@ pub fn (mut c Context) uniform_matrix(loc int, transpose bool, values []f32) {
 	}
 	ty := p.uniforms[loc].ty
 	if values.len != ty.comps() {
-		c.set_error(gl_invalid_value)
+		c.set_error(gl_invalid_operation)
 		return
 	}
 	p.uniform_data[loc] = pack_floats(ty, values)
@@ -477,7 +477,7 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 	// vertex_end is one past the highest vertex any attribute must supply.
 	mut vertex_end := first + count
 	mut index_handle := u32(0)
-	mut temp_index := u32(0)
+	mut temps := []u32{}
 	if isz > 0 {
 		name := c.bound_buffers[gl_element_array_buffer] or { 0 }
 		if name == 0 || name !in c.buffers {
@@ -509,16 +509,17 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 			for i in 0 .. count {
 				wide[i * 2] = raw[i]
 			}
-			temp_index = c.display.backend.create_buffer(count * 2) or {
+			wide_handle := c.display.backend.create_buffer(count * 2) or {
 				c.set_error(gl_out_of_memory)
 				return
 			}
-			c.display.backend.write_buffer(temp_index, 0, wide) or {
-				c.display.backend.destroy_buffer(temp_index)
+			temps << wide_handle
+			c.display.backend.write_buffer(wide_handle, 0, wide) or {
+				c.release_temps(temps)
 				c.set_error(gl_out_of_memory)
 				return
 			}
-			index_handle = temp_index
+			index_handle = wide_handle
 		} else {
 			index_handle = ebo.handle
 		}
@@ -527,11 +528,38 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 	mut offsets := []u32{}
 	mut comps := []i32{}
 	mut strides := []u32{}
+	mut constants := []i32{}
 	for a in p.attrs {
 		ptr := c.attribs[a.loc]
-		if !ptr.enabled || ptr.buffer == 0 || ptr.size != a.ty.comps() || ptr.buffer !in c.buffers {
+		if !ptr.enabled {
+			// A disabled array reads the generic attribute value, supplied as a
+			// 16-byte buffer that Metal steps through with a constant rate.
+			k := c.attrib_const_value(a.loc)
+			mut bytes := []u8{len: 16}
+			for i in 0 .. 4 {
+				put_u32(mut bytes, i * 4, f32_bits(k[i]))
+			}
+			const_buf := c.display.backend.create_buffer(16) or {
+				c.set_error(gl_out_of_memory)
+				c.release_temps(temps)
+				return
+			}
+			temps << const_buf
+			c.display.backend.write_buffer(const_buf, 0, bytes) or {
+				c.set_error(gl_out_of_memory)
+				c.release_temps(temps)
+				return
+			}
+			buffers << const_buf
+			offsets << u32(0)
+			comps << i32(a.ty.comps())
+			strides << u32(16)
+			constants << 1
+			continue
+		}
+		if ptr.buffer == 0 || ptr.size != a.ty.comps() || ptr.buffer !in c.buffers {
 			c.set_error(gl_invalid_operation)
-			c.release_temp_index(temp_index)
+			c.release_temps(temps)
 			return
 		}
 		buf := c.buffers[ptr.buffer]
@@ -539,18 +567,19 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 		need := ptr.offset + (vertex_end - 1) * stride + ptr.size * 4
 		if buf.handle == 0 || need > buf.size {
 			c.set_error(gl_invalid_operation)
-			c.release_temp_index(temp_index)
+			c.release_temps(temps)
 			return
 		}
 		buffers << buf.handle
 		offsets << u32(ptr.offset)
 		comps << i32(a.ty.comps())
 		strides << u32(stride)
+		constants << 0
 	}
 	mut key := c.blend_key() + c.depth_key(target) + '|'
 	for i, n in comps {
 		stride := strides[i]
-		key += '${n}:${stride},'
+		key += '${n}:${stride}:${constants[i]},'
 	}
 	pipeline := if key in p.pipelines {
 		p.pipelines[key]
@@ -562,12 +591,13 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 			fs_fn:           'fs_entry'
 			attr_components: comps
 			attr_strides:    strides
+			attr_constant:   constants
 			blend:           c.blend_codes()
 			write_mask:      c.mask_bits()
 			has_depth:       target.depth != 0
 		}) or {
 			c.set_error(gl_invalid_operation)
-			c.release_temp_index(temp_index)
+			c.release_temps(temps)
 			return
 		}
 		p.pipelines[key] = h
@@ -576,17 +606,17 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 	// FRONT_AND_BACK culls every triangle, which Metal cannot express.
 	cull := c.cull_code()
 	if cull < 0 && (prim == 3 || prim == 4) {
-		c.release_temp_index(temp_index)
+		c.release_temps(temps)
 		return
 	}
 	// An empty viewport or scissor covers no pixel, so the draw has no effect.
 	view, scis, visible := c.draw_rect(target)
 	if !visible {
-		c.release_temp_index(temp_index)
+		c.release_temps(temps)
 		return
 	}
 	textures, samplers := c.sampler_bindings(p, target) or {
-		c.release_temp_index(temp_index)
+		c.release_temps(temps)
 		return
 	}
 	// A failed GPU submission has no closer GL error than INVALID_OPERATION.
@@ -611,14 +641,15 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 		depth_func:    if c.depth.test && target.depth != 0 { depth_func_code(c.depth.func) or { i32(7) } } else { i32(-1) }
 		depth_write:   c.depth.write_enabled()
 		depth_range:   [c.depth.near, c.depth.far]
+		depth_bias:    if c.misc.polygon_offset { [c.misc.polygon_units, c.misc.polygon_factor] } else { [f32(0), 0] }
 		cull:          if cull < 0 { i32(0) } else { cull }
 		front_ccw:     c.depth.front_face == gl_ccw
 	}) or { c.set_error(gl_invalid_operation) }
-	c.release_temp_index(temp_index)
+	c.release_temps(temps)
 }
 
-fn (mut c Context) release_temp_index(handle u32) {
-	if handle != 0 {
-		c.display.backend.destroy_buffer(handle)
+fn (mut c Context) release_temps(handles []u32) {
+	for h in handles {
+		c.display.backend.destroy_buffer(h)
 	}
 }

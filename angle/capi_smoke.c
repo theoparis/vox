@@ -76,6 +76,16 @@ void glRenderbufferStorage(unsigned, unsigned, int, int);
 void glFramebufferRenderbuffer(unsigned, unsigned, unsigned, unsigned);
 void glDeleteRenderbuffers(int, const unsigned *);
 unsigned char glIsRenderbuffer(unsigned);
+void glHint(unsigned, unsigned);
+void glLineWidth(float);
+void glPixelStorei(unsigned, int);
+void glVertexAttrib4f(unsigned, float, float, float, float);
+void glBindAttribLocation(unsigned, unsigned, const char *);
+void glGetActiveUniform(unsigned, unsigned, int, int *, int *, unsigned *, char *);
+void glGetUniformfv(unsigned, int, float *);
+void glGetIntegervRobustANGLE(unsigned, int, int *, int *);
+void glStencilFunc(unsigned, int, unsigned);
+void glCopyTexImage2D(unsigned, int, unsigned, int, int, int, int, int);
 void glFlush(void);
 void glFinish(void);
 
@@ -153,6 +163,16 @@ int main(int argc, char **argv)
     SYM(glFramebufferRenderbuffer);
     SYM(glDeleteRenderbuffers);
     SYM(glIsRenderbuffer);
+    SYM(glHint);
+    SYM(glLineWidth);
+    SYM(glPixelStorei);
+    SYM(glVertexAttrib4f);
+    SYM(glBindAttribLocation);
+    SYM(glGetActiveUniform);
+    SYM(glGetUniformfv);
+    SYM(glGetIntegervRobustANGLE);
+    SYM(glStencilFunc);
+    SYM(glCopyTexImage2D);
     SYM(glFlush);
     SYM(glFinish);
 
@@ -295,6 +315,40 @@ int main(int argc, char **argv)
     glDeleteRenderbuffers_fn(1, &depth_rb);
     CHECK(!glIsRenderbuffer_fn(depth_rb));
     CHECK(glGetError_fn() == 0);
+
+    /* State setters, introspection, and the Robust getters. */
+    glUseProgram_fn(program);
+    glUniform4f_fn(glGetUniformLocation_fn(program, "u_color"), 0.25f, 0.5f, 0.75f, 1.0f);
+    float color_value[4] = { 0 };
+    glGetUniformfv_fn(program, glGetUniformLocation_fn(program, "u_color"), color_value);
+    CHECK(color_value[0] == 0.25f && color_value[1] == 0.5f && color_value[2] == 0.75f && color_value[3] == 1.0f);
+    int count_value = 0;
+    glGetProgramiv_fn(program, 0x8B86, &count_value);
+    CHECK(count_value == 2);
+    glGetProgramiv_fn(program, 0x8B89, &count_value);
+    CHECK(count_value == 1);
+    char uniform_name[32] = { 0 };
+    int name_length = 0, uniform_size = 0;
+    unsigned uniform_type = 0;
+    glGetActiveUniform_fn(program, 0, sizeof uniform_name, &name_length, &uniform_size, &uniform_type, uniform_name);
+    CHECK(name_length > 0 && uniform_size == 1 && (uniform_type == 0x8B50 || uniform_type == 0x8B52));
+    int view[4] = { 0 }, view_length = 0;
+    glGetIntegervRobustANGLE_fn(0x0BA2, 4, &view_length, view);
+    CHECK(view_length == 4 && view[2] == 4 && view[3] == 3);
+    glGetIntegervRobustANGLE_fn(0x0BA2, 2, &view_length, view);
+    CHECK(glGetError_fn() == 0x0502); /* the buffer is too small */
+    glVertexAttrib4f_fn(5, 1, 2, 3, 4);
+    glPixelStorei_fn(0x0CF5, 1);
+    glHint_fn(0x8192, 0x1102);
+    glStencilFunc_fn(0x0207, 0, 0xff);
+    glBindAttribLocation_fn(program, 3, "a_pos");
+    CHECK(glGetError_fn() == 0);
+    glPixelStorei_fn(0x0CF5, 3);
+    CHECK(glGetError_fn() == 0x0501);
+    glLineWidth_fn(0);
+    CHECK(glGetError_fn() == 0x0501);
+    glCopyTexImage2D_fn(0x0DE1, 0, 0x1908, 0, 0, 2, 2, 1);
+    CHECK(glGetError_fn() == 0x0501);
 
     /* A broken shader reports a log through the C ABI. */
     const char *bad_src = "void main() { gl_FragColor = vec4(missing); }";

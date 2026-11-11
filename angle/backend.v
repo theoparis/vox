@@ -43,6 +43,9 @@ pub:
 	fs_fn           string
 	attr_components []i32
 	attr_strides    []u32
+	// attr_constant[i] is 1 when attribute i reads one constant value instead of
+	// advancing per vertex.
+	attr_constant []i32
 	// blend is empty when blending is off, otherwise six values: source and
 	// destination factor for RGB then alpha (0 zero, 1 one, 2 src color, 3 one
 	// minus src color, 4 dst color, 5 one minus dst color, 6 src alpha, 7 one
@@ -95,6 +98,8 @@ pub:
 	// triangles (in GL window coordinates, y up) are front-facing.
 	cull      i32
 	front_ccw bool
+	// depth_bias is {units, slope factor} from glPolygonOffset, or {0, 0}.
+	depth_bias []f32
 	// viewport and scissor are {x, y, width, height} in GL window coordinates,
 	// already clipped to the target. The scissor always covers the draw.
 	viewport []i32

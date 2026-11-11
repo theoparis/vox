@@ -273,7 +273,7 @@ unsigned vox_angle_mtl_library_create(void *handle, const char *source, char *lo
  * spaced float attribute of 1 to 4 components at the given stride. */
 unsigned vox_angle_mtl_pipeline_create(void *handle, unsigned vs_library, const char *vs_entry,
                                        unsigned fs_library, const char *fs_entry, int attr_count,
-                                       const int *components, const unsigned *strides, int blend_count,
+                                       const int *components, const unsigned *strides, const int *constant, int blend_count,
                                        const int *blend, int write_mask, int has_depth, char *log, int log_size)
 {
     VoxAngleMetal *ctx = handle;
@@ -342,8 +342,8 @@ unsigned vox_angle_mtl_pipeline_create(void *handle, unsigned vs_library, const 
         layout.attributes[i].offset = 0;
         layout.attributes[i].bufferIndex = 16 + (NSUInteger)i;
         layout.layouts[16 + i].stride = strides[i];
-        layout.layouts[16 + i].stepFunction = MTLVertexStepFunctionPerVertex;
-        layout.layouts[16 + i].stepRate = 1;
+        layout.layouts[16 + i].stepFunction = constant[i] ? MTLVertexStepFunctionConstant : MTLVertexStepFunctionPerVertex;
+        layout.layouts[16 + i].stepRate = constant[i] ? 0 : 1;
     }
     desc.vertexDescriptor = layout;
     NSError *error = nil;
@@ -362,7 +362,8 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
                        const int *viewport, const int *scissor, int texture_count,
                        const unsigned *textures, const int *sampler_params, const float *blend_color,
                        unsigned index_buffer, int index_type, unsigned index_offset, unsigned depth_texture,
-                       int depth_func, int depth_write, const float *depth_range, int cull, int front_ccw)
+                       int depth_func, int depth_write, const float *depth_range, int cull, int front_ccw,
+                       const float *depth_bias)
 {
     VoxAngleMetal *ctx = handle;
     id<MTLTexture> texture = vox_angle_lookup(ctx, target);
@@ -415,6 +416,7 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
         [encoder setDepthStencilState:ds];
         [ds release];
     }
+    [encoder setDepthBias:depth_bias[0] slopeScale:depth_bias[1] clamp:0.0f];
     [encoder setCullMode:(MTLCullMode)cull];
     /* The vertex wrapper negates y, which reverses winding as Metal sees it. */
     [encoder setFrontFacingWinding:front_ccw ? MTLWindingClockwise : MTLWindingCounterClockwise];

@@ -12,6 +12,10 @@ Language translator. A backend interface keeps Vulkan possible later.
   semantics, buffers, RGBA8 textures, color-attachment framebuffers, clears,
   `read_pixels`, viewport, scissor, enable/disable, shader and program lifetime,
   and the `glGet*` and `glIs*` queries.
+- `gl_misc.v`, `gl_introspect.v`: hints, line width, polygon offset, pixel
+  storage, stencil state, generic (constant) vertex attributes, program and
+  shader parameters, active attribute/uniform queries, `glBindAttribLocation`
+  and the parameter getters.
 - `gl_depth.v`: depth buffer and test, `glDepthRange`, face culling, and depth
   renderbuffers. Surfaces and framebuffers with a depth renderbuffer carry a
   32-bit float depth texture.
@@ -53,10 +57,17 @@ and `GL_TRIANGLE_STRIP` draws.
   opaque black, as does a non-power-of-two texture that is not clamped. Sampling
   the texture being rendered to is `INVALID_OPERATION`. `glTexSubImage2D` reads
   back and re-uploads the whole image until the backend gains a region upload.
-- Stencil: there is no stencil buffer. The config reports stencil size 0,
+- Stencil: there is no stencil buffer. `glStencil*` validate their enums and
+  `GL_STENCIL_TEST` can be enabled, but nothing is stored or applied: with no
+  stencil buffer the test passes, as GL specifies. The config reports stencil size 0,
   clearing the stencil bit is a no-op, and stencil or DEPTH_STENCIL renderbuffer
   formats and attachments return `INVALID_OPERATION`. Color renderbuffers and
   depth textures are not implemented either.
+- `glLineWidth` stores the width, but Metal draws one-pixel lines, which is
+  also the reported range. Sample coverage and dither are tracked, not applied.
+- Integer and bool uniform vectors do not exist in the shader subset, so
+  `glUniform{2,3,4}i[v]` always report `INVALID_OPERATION`. `glCopyTexImage2D`
+  reads the framebuffer through the CPU; compressed formats are `INVALID_ENUM`.
 - Draws: float attributes only; no non-RGBA formats, transform feedback, queries or sync objects.
 - Clear with the scissor test enabled (or a partial color mask for a color
   clear) returns `INVALID_OPERATION`: a Metal load-action clear ignores both, and a masked fill
@@ -86,7 +97,7 @@ and `GL_TRIANGLE_STRIP` draws.
 
 ## C ABI (shared library)
 
-`capi*.v` exports the core as `libEGL`/`libGLESv2`-style C symbols: 96 of the
+`capi*.v` exports the core as `libEGL`/`libGLESv2`-style C symbols: 146 of the
 241 that `webgl/angle_dispatch_darwin.h` lists. Build and check with
 
     sh tools/test_angle_capi.sh
@@ -102,6 +113,6 @@ Notes:
 - V's export wrappers mishandle more than eight parameters, so `glTexImage2D`
   is a small C shim (`capi_shim.h`) forwarding to an 8-parameter V export.
 - **WebGL still uses ANGLE.** `webgl/angle_dispatch_darwin.h` requires all 241
-  symbols to resolve, and the remaining 145 (queries, sync, transform feedback,
+  symbols to resolve, and the remaining 95 (queries, sync, transform feedback,
   instancing, ES 3 entry points, and the ANGLE extensions) are not exported yet,
   so this library cannot be selected there.

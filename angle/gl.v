@@ -54,6 +54,7 @@ struct GLBuffer {
 mut:
 	handle u32
 	size   int
+	usage  u32 = gl_static_draw
 }
 
 struct GLTexture {
@@ -101,6 +102,8 @@ mut:
 	renderbuffers     map[u32]GLRenderbuffer
 	bound_renderbuffer u32
 	depth             DepthState
+	misc              MiscState
+	attrib_consts     [16]AttribConst
 	bound_buffers     map[u32]u32
 	texture_units     [8]u32
 	active_unit       int
@@ -257,6 +260,7 @@ pub fn (mut c Context) buffer_data(target u32, size int, data []u8, usage u32) {
 	c.buffers[name] = GLBuffer{
 		handle: handle
 		size:   size
+		usage:  usage
 	}
 }
 

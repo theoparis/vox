@@ -208,3 +208,73 @@ fn (mut c Context) sampler_bindings(p &Program, target RenderTarget) ?([]u32, []
 	}
 	return textures, params
 }
+
+// read_region copies a width x height rectangle of the read framebuffer's color
+// attachment. Pixels outside the framebuffer read as transparent black.
+fn (mut c Context) read_region(x int, y int, width int, height int) ?[]u8 {
+	target := c.resolve_target() or {
+		c.set_error(gl_invalid_framebuffer_operation)
+		return none
+	}
+	full := c.display.backend.read_texture(target.handle, target.width, target.height) or {
+		c.set_error(gl_out_of_memory)
+		return none
+	}
+	mut out := []u8{len: width * height * 4}
+	for row in 0 .. height {
+		sy := y + row
+		if sy < 0 || sy >= target.height {
+			continue
+		}
+		for col in 0 .. width {
+			sx := x + col
+			if sx < 0 || sx >= target.width {
+				continue
+			}
+			for i in 0 .. 4 {
+				out[(row * width + col) * 4 + i] = full[(sy * target.width + sx) * 4 + i]
+			}
+		}
+	}
+	return out
+}
+
+// copy_tex_image_2d defines level 0 of the bound texture from the read
+// framebuffer. The framebuffer is read through the CPU.
+pub fn (mut c Context) copy_tex_image_2d(target u32, level int, internal_format u32, x int, y int, width int, height int, border int) {
+	if target != gl_texture_2d {
+		c.set_error(gl_invalid_enum)
+		return
+	}
+	if level < 0 || width < 0 || height < 0 || border != 0 {
+		c.set_error(gl_invalid_value)
+		return
+	}
+	if level != 0 || internal_format != gl_rgba {
+		c.set_error(gl_invalid_operation)
+		return
+	}
+	pixels := c.read_region(x, y, width, height) or { return }
+	c.tex_image_2d(target, level, internal_format, width, height, gl_rgba, gl_unsigned_byte,
+		pixels)
+}
+
+pub fn (mut c Context) copy_tex_sub_image_2d(target u32, level int, xoffset int, yoffset int, x int, y int, width int, height int) {
+	if target != gl_texture_2d {
+		c.set_error(gl_invalid_enum)
+		return
+	}
+	if width < 0 || height < 0 {
+		c.set_error(gl_invalid_value)
+		return
+	}
+	pixels := c.read_region(x, y, width, height) or { return }
+	c.tex_sub_image_2d(target, level, xoffset, yoffset, width, height, gl_rgba, gl_unsigned_byte,
+		pixels)
+}
+
+// compressed_tex_image_2d: no compressed format is supported, so every format
+// is an invalid enum, as in a context that exposes no compression extension.
+pub fn (mut c Context) compressed_tex_image_2d(target u32, level int, format u32) {
+	c.set_error(gl_invalid_enum)
+}

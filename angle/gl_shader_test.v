@@ -123,7 +123,7 @@ void main() {
 	assert px[12..16] == [u8(0), 0, 255, 255]
 }
 
-fn test_draw_rejects_disabled_attributes_and_short_buffers() {
+fn test_disabled_attributes_read_a_constant_and_short_buffers_fail() {
 	$if !macos {
 		return
 	}
@@ -135,8 +135,9 @@ fn test_draw_rejects_disabled_attributes_and_short_buffers() {
 	prog := link_program_for(mut c, tri_vs, solid_fs)
 	c.use_program(prog)
 	c.uniform_floats(c.uniform_location(prog, 'u_color'), [f32(1), 1, 1, 1])
+	// A disabled array reads the generic attribute (0, 0, 0, 1): a degenerate draw, not an error.
 	c.draw_arrays(gl_triangles, 0, 3)
-	assert c.get_error() == gl_invalid_operation
+	assert c.get_error() == gl_no_error
 
 	bind_positions(mut c, prog, 'a_pos', [f32(-1), -1, 1, -1])
 	c.draw_arrays(gl_triangles, 0, 3)

@@ -50,7 +50,11 @@ fn (mut c Context) set_capability(cap u32, on bool) {
 		gl_blend { c.blend_enabled = on }
 		gl_depth_test { c.depth.test = on }
 		gl_cull_face_cap { c.depth.cull = on }
-		else { c.set_error(gl_invalid_enum) }
+		else {
+			if !c.set_extra_capability(cap, on) {
+				c.set_error(gl_invalid_enum)
+			}
+		}
 	}
 }
 

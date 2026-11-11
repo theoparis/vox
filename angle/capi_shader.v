@@ -72,19 +72,9 @@ pub fn capi_gl_compile_shader(shader u32) {
 @[export: 'glGetShaderiv']
 pub fn capi_gl_get_shaderiv(shader u32, pname u32, out &i32) {
 	mut c := capi_ctx() or { return }
-	if shader !in c.shaders {
-		c.set_error(gl_invalid_value)
-		return
-	}
+	v := c.shader_param(shader, pname) or { return }
 	unsafe {
-		match pname {
-			gl_compile_status { *out = if c.shader_compiled(shader) { 1 } else { 0 } }
-			gl_info_log_length { log := c.shader_log(shader)
-				*out = if log.len == 0 { 0 } else { i32(log.len + 1) } }
-			gl_shader_type_query { *out = if c.shaders[shader].kind == .vertex { i32(gl_vertex_shader) } else { i32(gl_fragment_shader) } }
-			gl_delete_status { *out = 0 }
-			else { c.set_error(gl_invalid_enum) }
-		}
+		*out = i32(v)
 	}
 }
 
@@ -119,18 +109,9 @@ pub fn capi_gl_link_program(program u32) {
 @[export: 'glGetProgramiv']
 pub fn capi_gl_get_programiv(program u32, pname u32, out &i32) {
 	mut c := capi_ctx() or { return }
-	if program !in c.programs {
-		c.set_error(gl_invalid_value)
-		return
-	}
+	v := c.program_param(program, pname) or { return }
 	unsafe {
-		match pname {
-			gl_link_status { *out = if c.program_linked(program) { 1 } else { 0 } }
-			gl_info_log_length { log := c.program_log(program)
-				*out = if log.len == 0 { 0 } else { i32(log.len + 1) } }
-			gl_delete_status { *out = 0 }
-			else { c.set_error(gl_invalid_enum) }
-		}
+		*out = i32(v)
 	}
 }
 

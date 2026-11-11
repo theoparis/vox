@@ -20,7 +20,14 @@ pub:
 // buffer indices, and checks that the two stages agree on their interface.
 // It is pure, so it is tested without a GPU.
 pub fn plan_link(vs &Unit, fs &Unit) !LinkPlan {
-	mut attrs := []LinkVar{}
+	return plan_link_with(vs, fs, map[string]int{})
+}
+
+// plan_link_with is plan_link honoring glBindAttribLocation requests. An
+// active attribute with a request takes that slot; the rest fill the free
+// slots in declaration order. Two active attributes may not share a slot.
+pub fn plan_link_with(vs &Unit, fs &Unit, bindings map[string]int) !LinkPlan {
+	mut active := []Global{}
 	for g in vs.globals {
 		if g.qual != .attribute || g.name !in vs.used {
 			continue
@@ -28,13 +35,43 @@ pub fn plan_link(vs &Unit, fs &Unit) !LinkPlan {
 		if g.ty.mat_n() > 0 {
 			return error('matrix attribute "${g.name}" is not supported yet')
 		}
-		if attrs.len == max_attribs {
+		if active.len == max_attribs {
 			return error('the vertex shader uses more than ${max_attribs} attributes')
 		}
+		active << g
+	}
+	mut taken := map[int]string{}
+	mut slot_of := map[string]int{}
+	for g in active {
+		if g.name in bindings {
+			slot := bindings[g.name]
+			if slot in taken {
+				return error('attributes "${taken[slot]}" and "${g.name}" are bound to location ${slot}')
+			}
+			taken[slot] = g.name
+			slot_of[g.name] = slot
+		}
+	}
+	mut next_free := 0
+	for g in active {
+		if g.name in slot_of {
+			continue
+		}
+		for {
+			if next_free !in taken {
+				break
+			}
+			next_free++
+		}
+		taken[next_free] = g.name
+		slot_of[g.name] = next_free
+	}
+	mut attrs := []LinkVar{}
+	for g in active {
 		attrs << LinkVar{
 			name: g.name
 			ty:   g.ty
-			loc:  attrs.len
+			loc:  slot_of[g.name]
 		}
 	}
 
@@ -213,4 +250,8 @@ pub mut:
 	pipelines    map[string]u32
 	// deleted marks a program that glDeleteProgram released while current.
 	deleted bool
+	// validated is the VALIDATE_STATUS set by glValidateProgram.
+	validated bool
+	// bound_attribs holds glBindAttribLocation requests, applied at link.
+	bound_attribs map[string]int
 }
