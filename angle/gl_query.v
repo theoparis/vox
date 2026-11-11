@@ -61,6 +61,20 @@ fn (c &Context) query_values(pname u32) ?[]f64 {
 		gl_max_varying_vectors {
 			[f64(max_varyings)]
 		}
+		gl_blend_color_pname {
+			[f64(c.blend.color[0]), f64(c.blend.color[1]), f64(c.blend.color[2]),
+				f64(c.blend.color[3])]
+		}
+		gl_blend_src_rgb { [f64(c.blend.src_rgb)] }
+		gl_blend_dst_rgb { [f64(c.blend.dst_rgb)] }
+		gl_blend_src_alpha { [f64(c.blend.src_alpha)] }
+		gl_blend_dst_alpha { [f64(c.blend.dst_alpha)] }
+		gl_blend_equation_rgb { [f64(c.blend.eq_rgb)] }
+		gl_blend_equation_alpha { [f64(c.blend.eq_alpha)] }
+		gl_color_writemask {
+			[f64(int(c.blend.mask[0])), f64(int(c.blend.mask[1])), f64(int(c.blend.mask[2])),
+				f64(int(c.blend.mask[3]))]
+		}
 		gl_current_program {
 			[f64(c.current_program)]
 		}
@@ -100,7 +114,7 @@ pub fn (mut c Context) get_integers(pname u32) []int {
 	}
 	mut out := []int{cap: values.len}
 	for v in values {
-		if pname == gl_color_clear_value {
+		if pname == gl_color_clear_value || pname == gl_blend_color_pname {
 			out << int((f64(4294967295.0) * v - 1.0) / 2.0)
 		} else {
 			out << int(v)

@@ -289,3 +289,10 @@ pub fn capi_gl_draw_arrays(mode u32, first i32, count i32) {
 	mut c := capi_ctx() or { return }
 	c.draw_arrays(mode, int(first), int(count))
 }
+
+// glDrawElements: indices is a byte offset into the bound ELEMENT_ARRAY_BUFFER.
+@[export: 'glDrawElements']
+pub fn capi_gl_draw_elements(mode u32, count i32, typ u32, indices voidptr) {
+	mut c := capi_ctx() or { return }
+	c.draw_elements(mode, int(count), typ, int(u64(indices)))
+}

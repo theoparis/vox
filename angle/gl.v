@@ -101,6 +101,8 @@ mut:
 	viewport          [4]int
 	scissor_rect      [4]int
 	scissor_test      bool
+	blend_enabled     bool
+	blend             BlendState
 	default_state_set bool
 }
 
@@ -507,9 +509,9 @@ pub fn (mut c Context) clear(mask u32) {
 	if mask & gl_color_buffer_bit == 0 {
 		return
 	}
-	// A Metal load-action clear ignores the scissor rectangle, so a scissored
-	// clear is refused until a masked fill exists. Refusing is explicit, not partial.
-	if c.scissor_test {
+	// A Metal load-action clear ignores the scissor rectangle and the color
+	// mask, so such a clear is refused until a masked fill exists. Refusing is explicit, not partial.
+	if c.scissor_test || !c.blend.full_mask() {
 		c.set_error(gl_invalid_operation)
 		return
 	}

@@ -242,7 +242,8 @@ unsigned vox_angle_mtl_library_create(void *handle, const char *source, char *lo
  * spaced float attribute of 1 to 4 components at the given stride. */
 unsigned vox_angle_mtl_pipeline_create(void *handle, unsigned vs_library, const char *vs_entry,
                                        unsigned fs_library, const char *fs_entry, int attr_count,
-                                       const int *components, const unsigned *strides, char *log, int log_size)
+                                       const int *components, const unsigned *strides, int blend_count,
+                                       const int *blend, int write_mask, char *log, int log_size)
 {
     VoxAngleMetal *ctx = handle;
     id<MTLLibrary> vs_lib = vox_angle_lookup(ctx, vs_library);
@@ -261,6 +262,37 @@ unsigned vox_angle_mtl_pipeline_create(void *handle, unsigned vs_library, const 
     desc.vertexFunction = vf;
     desc.fragmentFunction = ff;
     desc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+    MTLColorWriteMask mask = MTLColorWriteMaskNone;
+    if (write_mask & 1) mask |= MTLColorWriteMaskRed;
+    if (write_mask & 2) mask |= MTLColorWriteMaskGreen;
+    if (write_mask & 4) mask |= MTLColorWriteMaskBlue;
+    if (write_mask & 8) mask |= MTLColorWriteMaskAlpha;
+    desc.colorAttachments[0].writeMask = mask;
+    if (blend_count == 6) {
+        /* Backend factor numbering to MTLBlendFactor. */
+        static const MTLBlendFactor factors[15] = {
+            MTLBlendFactorZero, MTLBlendFactorOne, MTLBlendFactorSourceColor, MTLBlendFactorOneMinusSourceColor,
+            MTLBlendFactorDestinationColor, MTLBlendFactorOneMinusDestinationColor, MTLBlendFactorSourceAlpha,
+            MTLBlendFactorOneMinusSourceAlpha, MTLBlendFactorDestinationAlpha, MTLBlendFactorOneMinusDestinationAlpha,
+            MTLBlendFactorBlendColor, MTLBlendFactorOneMinusBlendColor, MTLBlendFactorBlendAlpha,
+            MTLBlendFactorOneMinusBlendAlpha, MTLBlendFactorSourceAlphaSaturated
+        };
+        static const MTLBlendOperation operations[3] = {
+            MTLBlendOperationAdd, MTLBlendOperationSubtract, MTLBlendOperationReverseSubtract
+        };
+        for (int i = 0; i < 4; i++) {
+            if (blend[i] < 0 || blend[i] > 14) { [desc release]; return 0; }
+        }
+        if (blend[4] < 0 || blend[4] > 2 || blend[5] < 0 || blend[5] > 2) { [desc release]; return 0; }
+        MTLRenderPipelineColorAttachmentDescriptor *color = desc.colorAttachments[0];
+        color.blendingEnabled = YES;
+        color.sourceRGBBlendFactor = factors[blend[0]];
+        color.destinationRGBBlendFactor = factors[blend[1]];
+        color.sourceAlphaBlendFactor = factors[blend[2]];
+        color.destinationAlphaBlendFactor = factors[blend[3]];
+        color.rgbBlendOperation = operations[blend[4]];
+        color.alphaBlendOperation = operations[blend[5]];
+    }
     MTLVertexDescriptor *layout = [MTLVertexDescriptor vertexDescriptor];
     for (int i = 0; i < attr_count; i++) {
         MTLVertexFormat format;
@@ -296,7 +328,8 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
                        unsigned count, int attr_count, const unsigned *buffers, const unsigned *offsets,
                        int uniform_count, const unsigned *uniform_sizes, const unsigned char *uniform_bytes,
                        const int *viewport, const int *scissor, int texture_count,
-                       const unsigned *textures, const int *sampler_params)
+                       const unsigned *textures, const int *sampler_params, const float *blend_color,
+                       unsigned index_buffer, int index_type, unsigned index_offset)
 {
     VoxAngleMetal *ctx = handle;
     id<MTLTexture> texture = vox_angle_lookup(ctx, target);
@@ -309,6 +342,12 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
     for (int i = 0; i < attr_count; i++) {
         vertex_buffers[i] = vox_angle_lookup(ctx, buffers[i]);
         if (!vertex_buffers[i]) return 0;
+    }
+    id<MTLBuffer> indices = nil;
+    if (index_buffer) {
+        if (index_type != 1 && index_type != 2) return 0;
+        indices = vox_angle_lookup(ctx, index_buffer);
+        if (!indices) return 0;
     }
     id<MTLTexture> sampled[16] = { nil };
     for (int i = 0; i < texture_count; i++) {
@@ -351,7 +390,16 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
         [encoder setFragmentSamplerState:sampler atIndex:(NSUInteger)i];
         [sampler release];
     }
-    [encoder drawPrimitives:(MTLPrimitiveType)primitive vertexStart:start vertexCount:count];
+    [encoder setBlendColorRed:blend_color[0] green:blend_color[1] blue:blend_color[2] alpha:blend_color[3]];
+    if (indices) {
+        [encoder drawIndexedPrimitives:(MTLPrimitiveType)primitive
+                            indexCount:count
+                             indexType:index_type == 1 ? MTLIndexTypeUInt16 : MTLIndexTypeUInt32
+                           indexBuffer:indices
+                     indexBufferOffset:index_offset];
+    } else {
+        [encoder drawPrimitives:(MTLPrimitiveType)primitive vertexStart:start vertexCount:count];
+    }
     [encoder endEncoding];
     return vox_angle_submit_and_wait(ctx, command);
 }

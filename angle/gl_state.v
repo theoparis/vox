@@ -34,22 +34,22 @@ pub fn (mut c Context) scissor(x int, y int, width int, height int) {
 	c.scissor_rect[3] = height
 }
 
-// enable turns on a capability. Only the scissor test is supported so far.
+// enable turns on a capability. The scissor test and blending are supported.
 pub fn (mut c Context) enable(cap u32) {
-	if cap == gl_scissor_test {
-		c.scissor_test = true
-		return
-	}
-	c.set_error(gl_invalid_enum)
+	c.set_capability(cap, true)
 }
 
-// disable turns off a capability. Only the scissor test is supported so far.
+// disable turns off a capability.
 pub fn (mut c Context) disable(cap u32) {
-	if cap == gl_scissor_test {
-		c.scissor_test = false
-		return
+	c.set_capability(cap, false)
+}
+
+fn (mut c Context) set_capability(cap u32, on bool) {
+	match cap {
+		gl_scissor_test { c.scissor_test = on }
+		gl_blend { c.blend_enabled = on }
+		else { c.set_error(gl_invalid_enum) }
 	}
-	c.set_error(gl_invalid_enum)
 }
 
 // reset_surface_state gives a context its initial viewport and scissor, which

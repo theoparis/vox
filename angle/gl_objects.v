@@ -122,5 +122,5 @@ pub fn (c &Context) is_program(name u32) bool {
 }
 
 pub fn (c &Context) is_enabled(cap u32) bool {
-	return cap == gl_scissor_test && c.scissor_test
+	return (cap == gl_scissor_test && c.scissor_test) || (cap == gl_blend && c.blend_enabled)
 }

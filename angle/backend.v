@@ -39,6 +39,16 @@ pub:
 	fs_fn           string
 	attr_components []i32
 	attr_strides    []u32
+	// blend is empty when blending is off, otherwise six values: source and
+	// destination factor for RGB then alpha (0 zero, 1 one, 2 src color, 3 one
+	// minus src color, 4 dst color, 5 one minus dst color, 6 src alpha, 7 one
+	// minus src alpha, 8 dst alpha, 9 one minus dst alpha, 10 constant color,
+	// 11 one minus constant color, 12 constant alpha, 13 one minus constant
+	// alpha, 14 src alpha saturate), then the RGB and alpha equations (0 add,
+	// 1 subtract, 2 reverse subtract).
+	blend []i32
+	// write_mask has R=1, G=2, B=4, A=8.
+	write_mask i32 = 15
 }
 
 // DrawDesc is one validated draw. primitive uses the Metal MTLPrimitiveType
@@ -59,6 +69,14 @@ pub:
 	// 1 clamp to edge, 2 mirrored repeat).
 	textures []u32
 	samplers []i32
+	// blend_color is the constant blend color {r, g, b, a}.
+	blend_color []f32
+	// index_buffer is 0 for a plain draw. Otherwise count indices of
+	// index_type (1 for 16-bit, 2 for 32-bit) are read from it at index_offset
+	// bytes, and start is ignored.
+	index_buffer u32
+	index_type   i32
+	index_offset u32
 	// viewport and scissor are {x, y, width, height} in GL window coordinates,
 	// already clipped to the target. The scissor always covers the draw.
 	viewport []i32

@@ -12,6 +12,8 @@ Language translator. A backend interface keeps Vulkan possible later.
   semantics, buffers, RGBA8 textures, color-attachment framebuffers, clears,
   `read_pixels`, viewport, scissor, enable/disable, shader and program lifetime,
   and the `glGet*` and `glIs*` queries.
+- `gl_blend.v`: blend function, equation, constant color and color write mask,
+  baked into the Metal pipeline and its cache key.
 - `gl_texture.v`: texture units, sampler parameters, `glTexSubImage2D`, texture
   completeness, and the per-draw resolution of `sampler2D` uniforms.
 - `gl_shader.v`: shader and program objects, uniforms, vertex attributes,
@@ -29,7 +31,8 @@ Language translator. A backend interface keeps Vulkan possible later.
 ## Status
 
 Implemented: EGL contexts and pbuffers; GLES 2 buffers, RGBA8 textures,
-framebuffers, clears, read-back, viewport, scissor; eight texture units with
+framebuffers, clears, read-back, viewport, scissor; blending and color mask; `glDrawElements` with 8/16/32-bit indices;
+eight texture units with
 filter and wrap parameters; GLSL ES 1.00 shaders with attributes, uniforms,
 varyings, float/vector/matrix types, and `sampler2D` with `texture2D` in
 fragment shaders; `GL_TRIANGLES`
@@ -46,10 +49,14 @@ and `GL_TRIANGLE_STRIP` draws.
   opaque black, as does a non-power-of-two texture that is not clamped. Sampling
   the texture being rendered to is `INVALID_OPERATION`. `glTexSubImage2D` reads
   back and re-uploads the whole image until the backend gains a region upload.
-- Draws: float attributes only; no blending, depth or stencil, non-RGBA formats, transform feedback, queries or sync objects.
-- Clear with the scissor test enabled returns `INVALID_OPERATION`: a Metal
-  load-action clear ignores the scissor, and a masked fill does not exist yet.
-- Only `GL_SCISSOR_TEST` is accepted by `glEnable`/`glDisable`.
+- Draws: float attributes only; no depth or stencil, non-RGBA formats, transform feedback, queries or sync objects.
+- Clear with the scissor test enabled or a partial color mask returns
+  `INVALID_OPERATION`: a Metal load-action clear ignores both, and a masked fill
+  does not exist yet.
+- Only `GL_SCISSOR_TEST` and `GL_BLEND` are accepted by `glEnable`/`glDisable`.
+- 8-bit indices are widened to 16 bits per draw (Metal has no 8-bit type);
+  32-bit indices are accepted without an extension check, which a WebGL layer
+  must gate. Index buffers are scanned on the CPU to bounds-check attributes.
 - `glIsBuffer`, `glIsTexture` and `glIsFramebuffer` report true from generation,
   not from first bind. WebGL tracks that itself.
 - The Metal shader bridge functions are compiled only on macOS; other hosts
@@ -68,7 +75,7 @@ and `GL_TRIANGLE_STRIP` draws.
 
 ## C ABI (shared library)
 
-`capi*.v` exports the core as `libEGL`/`libGLESv2`-style C symbols: 77 of the
+`capi*.v` exports the core as `libEGL`/`libGLESv2`-style C symbols: 84 of the
 241 that `webgl/angle_dispatch_darwin.h` lists. Build and check with
 
     sh tools/test_angle_capi.sh
@@ -84,6 +91,6 @@ Notes:
 - V's export wrappers mishandle more than eight parameters, so `glTexImage2D`
   is a small C shim (`capi_shim.h`) forwarding to an 8-parameter V export.
 - **WebGL still uses ANGLE.** `webgl/angle_dispatch_darwin.h` requires all 241
-  symbols to resolve, and the remaining 164 (queries, sync, transform feedback,
+  symbols to resolve, and the remaining 157 (queries, sync, transform feedback,
   instancing, ES 3 entry points, and the ANGLE extensions) are not exported yet,
   so this library cannot be selected there.

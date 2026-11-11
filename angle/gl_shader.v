@@ -410,10 +410,46 @@ fn gl_primitive(mode u32) ?i32 {
 	return none
 }
 
+pub const gl_unsigned_short = u32(0x1403)
+pub const gl_unsigned_int = u32(0x1405)
+
 // draw_arrays draws into the draw framebuffer with the current program. Each
 // active attribute must be enabled and bound to a buffer large enough for the
 // range; otherwise the call records GL_INVALID_OPERATION and draws nothing.
 pub fn (mut c Context) draw_arrays(mode u32, first int, count int) {
+	if first < 0 || count < 0 {
+		c.set_error(gl_invalid_value)
+		return
+	}
+	c.draw_impl(mode, first, count, 0, 0)
+}
+
+// draw_elements draws count indices read from the bound ELEMENT_ARRAY_BUFFER
+// starting offset bytes in. 8-bit indices are widened to 16 bits because Metal
+// has no 8-bit index type; 32-bit indices are accepted as OES_element_index_uint
+// would allow, and a WebGL layer is expected to gate them.
+pub fn (mut c Context) draw_elements(mode u32, count int, typ u32, offset int) {
+	if typ != gl_unsigned_byte && typ != gl_unsigned_short && typ != gl_unsigned_int {
+		c.set_error(gl_invalid_enum)
+		return
+	}
+	if count < 0 || offset < 0 {
+		c.set_error(gl_invalid_value)
+		return
+	}
+	c.draw_impl(mode, 0, count, typ, offset)
+}
+
+fn index_size(typ u32) int {
+	return match typ {
+		gl_unsigned_byte { 1 }
+		gl_unsigned_short { 2 }
+		else { 4 }
+	}
+}
+
+// draw_impl is the shared draw path; index_type 0 means a non-indexed draw.
+fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, index_offset int) {
 	prim := gl_primitive(mode) or {
 		if mode == gl_triangle_fan || mode == gl_line_loop {
 			c.set_error(gl_invalid_operation)
@@ -422,8 +458,9 @@ pub fn (mut c Context) draw_arrays(mode u32, first int, count int) {
 		}
 		return
 	}
-	if first < 0 || count < 0 {
-		c.set_error(gl_invalid_value)
+	isz := if index_type == 0 { 0 } else { index_size(index_type) }
+	if isz > 0 && index_offset % isz != 0 {
+		c.set_error(gl_invalid_operation)
 		return
 	}
 	mut p := c.current_linked() or {
@@ -437,25 +474,72 @@ pub fn (mut c Context) draw_arrays(mode u32, first int, count int) {
 		c.set_error(gl_invalid_framebuffer_operation)
 		return
 	}
+	// vertex_end is one past the highest vertex any attribute must supply.
+	mut vertex_end := first + count
+	mut index_handle := u32(0)
+	mut temp_index := u32(0)
+	if isz > 0 {
+		name := c.bound_buffers[gl_element_array_buffer] or { 0 }
+		if name == 0 || name !in c.buffers {
+			c.set_error(gl_invalid_operation)
+			return
+		}
+		ebo := c.buffers[name]
+		if ebo.handle == 0 || index_offset + count * isz > ebo.size {
+			c.set_error(gl_invalid_operation)
+			return
+		}
+		raw := c.display.backend.read_buffer(ebo.handle, index_offset, count * isz) or {
+			c.set_error(gl_out_of_memory)
+			return
+		}
+		mut highest := u32(0)
+		for i in 0 .. count {
+			mut v := u32(0)
+			for b in 0 .. isz {
+				v |= u32(raw[i * isz + b]) << (8 * b)
+			}
+			if v > highest {
+				highest = v
+			}
+		}
+		vertex_end = int(highest) + 1
+		if index_type == gl_unsigned_byte {
+			mut wide := []u8{len: count * 2}
+			for i in 0 .. count {
+				wide[i * 2] = raw[i]
+			}
+			temp_index = c.display.backend.create_buffer(count * 2) or {
+				c.set_error(gl_out_of_memory)
+				return
+			}
+			c.display.backend.write_buffer(temp_index, 0, wide) or {
+				c.display.backend.destroy_buffer(temp_index)
+				c.set_error(gl_out_of_memory)
+				return
+			}
+			index_handle = temp_index
+		} else {
+			index_handle = ebo.handle
+		}
+	}
 	mut buffers := []u32{}
 	mut offsets := []u32{}
 	mut comps := []i32{}
 	mut strides := []u32{}
 	for a in p.attrs {
 		ptr := c.attribs[a.loc]
-		if !ptr.enabled || ptr.buffer == 0 || ptr.size != a.ty.comps() {
+		if !ptr.enabled || ptr.buffer == 0 || ptr.size != a.ty.comps() || ptr.buffer !in c.buffers {
 			c.set_error(gl_invalid_operation)
-			return
-		}
-		if ptr.buffer !in c.buffers {
-			c.set_error(gl_invalid_operation)
+			c.release_temp_index(temp_index)
 			return
 		}
 		buf := c.buffers[ptr.buffer]
 		stride := if ptr.stride == 0 { ptr.size * 4 } else { ptr.stride }
-		need := ptr.offset + (first + count - 1) * stride + ptr.size * 4
+		need := ptr.offset + (vertex_end - 1) * stride + ptr.size * 4
 		if buf.handle == 0 || need > buf.size {
 			c.set_error(gl_invalid_operation)
+			c.release_temp_index(temp_index)
 			return
 		}
 		buffers << buf.handle
@@ -463,7 +547,7 @@ pub fn (mut c Context) draw_arrays(mode u32, first int, count int) {
 		comps << i32(a.ty.comps())
 		strides << u32(stride)
 	}
-	mut key := ''
+	mut key := c.blend_key() + '|'
 	for i, n in comps {
 		stride := strides[i]
 		key += '${n}:${stride},'
@@ -478,8 +562,11 @@ pub fn (mut c Context) draw_arrays(mode u32, first int, count int) {
 			fs_fn:           'fs_entry'
 			attr_components: comps
 			attr_strides:    strides
+			blend:           c.blend_codes()
+			write_mask:      c.mask_bits()
 		}) or {
 			c.set_error(gl_invalid_operation)
+			c.release_temp_index(temp_index)
 			return
 		}
 		p.pipelines[key] = h
@@ -488,22 +575,37 @@ pub fn (mut c Context) draw_arrays(mode u32, first int, count int) {
 	// An empty viewport or scissor covers no pixel, so the draw has no effect.
 	view, scis, visible := c.draw_rect(target)
 	if !visible {
+		c.release_temp_index(temp_index)
 		return
 	}
-	textures, samplers := c.sampler_bindings(p, target) or { return }
+	textures, samplers := c.sampler_bindings(p, target) or {
+		c.release_temp_index(temp_index)
+		return
+	}
 	// A failed GPU submission has no closer GL error than INVALID_OPERATION.
 	c.display.backend.draw(DrawDesc{
-		target:    target.handle
-		pipeline:  pipeline
-		primitive: prim
-		start:     u32(first)
-		count:     u32(count)
-		buffers:   buffers
-		offsets:   offsets
-		uniforms:  p.uniform_data
-		textures:  textures
-		samplers:  samplers
-		viewport:  view
-		scissor:   scis
+		target:       target.handle
+		pipeline:     pipeline
+		primitive:    prim
+		start:        u32(first)
+		count:        u32(count)
+		buffers:      buffers
+		offsets:      offsets
+		uniforms:     p.uniform_data
+		viewport:     view
+		scissor:      scis
+		textures:     textures
+		samplers:     samplers
+		blend_color:  [c.blend.color[0], c.blend.color[1], c.blend.color[2], c.blend.color[3]]
+		index_buffer: index_handle
+		index_type:   if isz == 4 { 2 } else if isz > 0 { 1 } else { 0 }
+		index_offset: if index_type == gl_unsigned_byte { u32(0) } else { u32(index_offset) }
 	}) or { c.set_error(gl_invalid_operation) }
+	c.release_temp_index(temp_index)
+}
+
+fn (mut c Context) release_temp_index(handle u32) {
+	if handle != 0 {
+		c.display.backend.destroy_buffer(handle)
+	}
 }
