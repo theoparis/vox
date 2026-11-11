@@ -281,14 +281,14 @@ fn test_renderbuffer_validation() {
 	assert c.get_error() == gl_invalid_value
 	c.renderbuffer_storage(gl_renderbuffer, 0x8058, 4, 3) // GL_RGBA8: not implemented
 	assert c.get_error() == gl_invalid_operation
-	c.renderbuffer_storage(gl_renderbuffer, 0x84F9, 4, 3) // DEPTH24_STENCIL8: no stencil
-	assert c.get_error() == gl_invalid_operation
+	c.renderbuffer_storage(gl_renderbuffer, 0x1234, 4, 3)
+	assert c.get_error() == gl_invalid_operation // unknown format
 	fb := c.gen_framebuffer()
 	c.framebuffer_renderbuffer(gl_framebuffer, gl_depth_attachment, gl_renderbuffer, rb)
 	assert c.get_error() == gl_invalid_operation // default framebuffer bound
 	c.bind_framebuffer(gl_framebuffer, fb)
-	c.framebuffer_renderbuffer(gl_framebuffer, 0x8D20, gl_renderbuffer, rb)
-	assert c.get_error() == gl_invalid_operation // stencil attachment
+	c.framebuffer_renderbuffer(gl_framebuffer, 0x8CE0, gl_renderbuffer, rb)
+	assert c.get_error() == gl_invalid_operation // color attachment
 	c.framebuffer_renderbuffer(gl_framebuffer, gl_depth_attachment, gl_renderbuffer, 9999)
 	assert c.get_error() == gl_invalid_operation
 	assert c.get_integers(gl_renderbuffer_binding) == [int(rb)]

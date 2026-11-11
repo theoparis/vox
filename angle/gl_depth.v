@@ -3,7 +3,7 @@
 module angle
 
 // Depth buffer, depth test, face culling, and renderbuffers. Depth is stored
-// as 32-bit float; stencil is not implemented.
+// as 32-bit float and shares one texture with the 8-bit stencil plane.
 
 pub const gl_depth_test = u32(0x0B71)
 pub const gl_cull_face_cap = u32(0x0B44)
@@ -24,6 +24,11 @@ pub const gl_renderbuffer = u32(0x8D41)
 pub const gl_depth_component16 = u32(0x81A5)
 pub const gl_depth_component24 = u32(0x81A6)
 pub const gl_depth_attachment = u32(0x8D00)
+pub const gl_stencil_attachment = u32(0x8D20)
+pub const gl_depth_stencil_attachment = u32(0x821A)
+pub const gl_stencil_index8 = u32(0x8D48)
+pub const gl_depth24_stencil8 = u32(0x88F0)
+pub const gl_depth_stencil_format = u32(0x84F9)
 pub const gl_depth_func_pname = u32(0x0B74)
 pub const gl_depth_writemask = u32(0x0B72)
 pub const gl_depth_clear_value = u32(0x0B73)
@@ -141,8 +146,9 @@ pub fn (mut c Context) bind_renderbuffer(target u32, name u32) {
 	c.bound_renderbuffer = name
 }
 
-// renderbuffer_storage allocates a depth renderbuffer. Only
-// DEPTH_COMPONENT16 and DEPTH_COMPONENT24 exist; color and stencil formats are valid GL but not
+// renderbuffer_storage allocates a depth, stencil or packed depth-stencil
+// renderbuffer (DEPTH_COMPONENT16/24, STENCIL_INDEX8, DEPTH24_STENCIL8 and the
+// ES 2 DEPTH_STENCIL spelling). Color formats are valid GL but not
 // implemented, so they report INVALID_OPERATION rather than a wrong format.
 pub fn (mut c Context) renderbuffer_storage(target u32, format u32, width int, height int) {
 	if target != gl_renderbuffer {
@@ -158,9 +164,11 @@ pub fn (mut c Context) renderbuffer_storage(target u32, format u32, width int, h
 		c.set_error(gl_invalid_operation)
 		return
 	}
-	// Both depth sizes share the Depth32Float storage; the format only changes
-	// what the queries report.
-	if format != gl_depth_component16 && format != gl_depth_component24 {
+	// Every format shares one Depth32Float_Stencil8 texture; the format only
+	// decides which planes the attachment provides and what queries report.
+	if format != gl_depth_component16 && format != gl_depth_component24
+		&& format != gl_stencil_index8 && format != gl_depth24_stencil8
+		&& format != gl_depth_stencil_format {
 		c.set_error(gl_invalid_operation)
 		return
 	}
@@ -176,7 +184,7 @@ pub fn (mut c Context) renderbuffer_storage(target u32, format u32, width int, h
 		c.set_error(gl_out_of_memory)
 		return
 	}
-	c.display.backend.clear_depth(handle, 1.0) or {
+	c.display.backend.clear_depth_stencil(handle, 1.0, 0, 3) or {
 		c.display.backend.destroy_texture(handle)
 		c.set_error(gl_out_of_memory)
 		return
@@ -202,9 +210,14 @@ pub fn (mut c Context) delete_renderbuffer(name u32) {
 		c.bound_renderbuffer = 0
 	}
 	for fname, fb in c.framebuffers {
-		if fb.depth_rb == name {
+		if fb.depth_rb == name || fb.stencil_rb == name {
 			mut updated := fb
-			updated.depth_rb = 0
+			if updated.depth_rb == name {
+				updated.depth_rb = 0
+			}
+			if updated.stencil_rb == name {
+				updated.stencil_rb = 0
+			}
 			c.framebuffers[fname] = updated
 		}
 	}
@@ -214,8 +227,9 @@ pub fn (c &Context) is_renderbuffer(name u32) bool {
 	return name != 0 && name in c.renderbuffers
 }
 
-// framebuffer_renderbuffer attaches a depth renderbuffer to the bound
-// framebuffer. Color and stencil renderbuffer attachments are not implemented.
+// framebuffer_renderbuffer attaches a renderbuffer as the depth, stencil or
+// depth-stencil attachment of the bound framebuffer. Color renderbuffer
+// attachments are not implemented.
 pub fn (mut c Context) framebuffer_renderbuffer(target u32, attachment u32, rbtarget u32, rb u32) {
 	if target != gl_framebuffer && target != gl_read_framebuffer && target != gl_draw_framebuffer {
 		c.set_error(gl_invalid_enum)
@@ -229,7 +243,8 @@ pub fn (mut c Context) framebuffer_renderbuffer(target u32, attachment u32, rbta
 		c.set_error(gl_invalid_operation)
 		return
 	}
-	if attachment != gl_depth_attachment {
+	if attachment != gl_depth_attachment && attachment != gl_stencil_attachment
+		&& attachment != gl_depth_stencil_attachment {
 		c.set_error(gl_invalid_operation)
 		return
 	}
@@ -238,6 +253,14 @@ pub fn (mut c Context) framebuffer_renderbuffer(target u32, attachment u32, rbta
 		return
 	}
 	mut fb := c.framebuffers[c.bound_framebuffer]
-	fb.depth_rb = rb
+	// Whether the format provides the plane is checked at completeness time.
+	match attachment {
+		gl_depth_attachment { fb.depth_rb = rb }
+		gl_stencil_attachment { fb.stencil_rb = rb }
+		else {
+			fb.depth_rb = rb
+			fb.stencil_rb = rb
+		}
+	}
 	c.framebuffers[c.bound_framebuffer] = fb
 }

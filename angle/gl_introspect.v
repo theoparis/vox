@@ -361,11 +361,20 @@ pub fn (mut c Context) renderbuffer_parameter(target u32, pname u32) ?f64 {
 			f64(if defined { rb.format } else { u32(0x8058) })
 		}
 		gl_renderbuffer_depth_size {
-			f64(if !defined { 0 } else if rb.format == gl_depth_component24 { 24 } else { 16 })
+			f64(if !defined || !rb.has_depth() {
+				0
+			} else if rb.format == gl_depth_component16 {
+				16
+			} else {
+				24
+			})
 		}
 		gl_renderbuffer_red_size, gl_renderbuffer_green_size, gl_renderbuffer_blue_size,
-		gl_renderbuffer_alpha_size, gl_renderbuffer_stencil_size {
+		gl_renderbuffer_alpha_size {
 			f64(0)
+		}
+		gl_renderbuffer_stencil_size {
+			f64(if defined && rb.has_stencil() { 8 } else { 0 })
 		}
 		else {
 			c.set_error(gl_invalid_enum)

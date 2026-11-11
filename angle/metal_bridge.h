@@ -17,7 +17,8 @@ int vox_angle_mtl_buffer_read(void *context, unsigned buffer, long long offset, 
 unsigned vox_angle_mtl_texture_create(void *context, int width, int height, int mipmapped);
 int vox_angle_mtl_generate_mipmaps(void *context, unsigned texture);
 unsigned vox_angle_mtl_depth_create(void *context, int width, int height);
-int vox_angle_mtl_depth_clear(void *context, unsigned texture, float depth);
+/* mask selects the planes to clear: bit 0 depth, bit 1 stencil. */
+int vox_angle_mtl_depth_clear(void *context, unsigned texture, float depth, int stencil, int mask);
 int vox_angle_mtl_texture_clear(void *context, unsigned texture, float r, float g, float b, float a);
 int vox_angle_mtl_texture_upload(void *context, unsigned texture, int width, int height, const void *pixels);
 int vox_angle_mtl_texture_read(void *context, unsigned texture, int width, int height, void *pixels);
@@ -34,6 +35,8 @@ unsigned vox_angle_mtl_pipeline_create(void *context, unsigned vs_library, const
                                        const int *blend, int write_mask, int has_depth, char *log, int log_size);
 /* depth_texture 0 means no depth attachment; depth_func -1 disables the depth test, else it is
  * an MTLCompareFunction number. depth_range is {near, far}; depth_bias is {units, slope}. cull is 0 none, 1 front, 2 back.
+ * stencil is NULL with the stencil test off, else 14 ints (front then back): compare function,
+ * reference, read mask, write mask, fail, depth-fail and pass operation (MTLStencilOperation numbers).
  * index_buffer 0 draws plain vertices; otherwise count indices (index_type 1 = 16-bit, 2 = 32-bit)
  * are read at index_offset bytes and start is ignored. blend_color is {r, g, b, a}.
  * textures[i] (0 for none) is bound to fragment texture and sampler slot i; sampler_params holds
@@ -49,6 +52,6 @@ int vox_angle_mtl_draw(void *context, unsigned target, unsigned pipeline, int pr
                        const unsigned *textures, const int *sampler_params, const float *blend_color,
                        unsigned index_buffer, int index_type, unsigned index_offset, unsigned depth_texture,
                        int depth_func, int depth_write, const float *depth_range, int cull, int front_ccw,
-                       const float *depth_bias, unsigned instance_count);
+                       const float *depth_bias, unsigned instance_count, const int *stencil);
 
 #endif

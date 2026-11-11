@@ -132,7 +132,7 @@ unsigned vox_angle_mtl_depth_create(void *handle, int width, int height)
     VoxAngleMetal *ctx = handle;
     if (!ctx || width <= 0 || height <= 0) return 0;
     MTLTextureDescriptor *descriptor =
-        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float_Stencil8
                                                            width:(NSUInteger)width
                                                           height:(NSUInteger)height
                                                        mipmapped:NO];
@@ -150,16 +150,20 @@ static int vox_angle_submit_and_wait(VoxAngleMetal *ctx, id<MTLCommandBuffer> co
     return [command status] == MTLCommandBufferStatusCompleted;
 }
 
-int vox_angle_mtl_depth_clear(void *handle, unsigned resource, float depth)
+int vox_angle_mtl_depth_clear(void *handle, unsigned resource, float depth, int stencil, int mask)
 {
     VoxAngleMetal *ctx = handle;
     id<MTLTexture> texture = vox_angle_lookup(ctx, resource);
     if (!texture) return 0;
     MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.depthAttachment.texture = texture;
-    pass.depthAttachment.loadAction = MTLLoadActionClear;
+    pass.depthAttachment.loadAction = (mask & 1) ? MTLLoadActionClear : MTLLoadActionLoad;
     pass.depthAttachment.storeAction = MTLStoreActionStore;
     pass.depthAttachment.clearDepth = depth;
+    pass.stencilAttachment.texture = texture;
+    pass.stencilAttachment.loadAction = (mask & 2) ? MTLLoadActionClear : MTLLoadActionLoad;
+    pass.stencilAttachment.storeAction = MTLStoreActionStore;
+    pass.stencilAttachment.clearStencil = (uint32_t)stencil & 0xFF;
     id<MTLCommandBuffer> command = [ctx->queue commandBuffer];
     id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
     [encoder endEncoding];
@@ -305,7 +309,10 @@ unsigned vox_angle_mtl_pipeline_create(void *handle, unsigned vs_library, const 
     desc.vertexFunction = vf;
     desc.fragmentFunction = ff;
     desc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
-    if (has_depth) desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+    if (has_depth) {
+        desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
+        desc.stencilAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
+    }
     MTLColorWriteMask mask = MTLColorWriteMaskNone;
     if (write_mask & 1) mask |= MTLColorWriteMaskRed;
     if (write_mask & 2) mask |= MTLColorWriteMaskGreen;
@@ -383,7 +390,7 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
                        const unsigned *textures, const int *sampler_params, const float *blend_color,
                        unsigned index_buffer, int index_type, unsigned index_offset, unsigned depth_texture,
                        int depth_func, int depth_write, const float *depth_range, int cull, int front_ccw,
-                       const float *depth_bias, unsigned instance_count)
+                       const float *depth_bias, unsigned instance_count, const int *stencil)
 {
     VoxAngleMetal *ctx = handle;
     id<MTLTexture> texture = vox_angle_lookup(ctx, target);
@@ -423,19 +430,39 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
         pass.depthAttachment.texture = depth;
         pass.depthAttachment.loadAction = MTLLoadActionLoad;
         pass.depthAttachment.storeAction = MTLStoreActionStore;
+        pass.stencilAttachment.texture = depth;
+        pass.stencilAttachment.loadAction = MTLLoadActionLoad;
+        pass.stencilAttachment.storeAction = MTLStoreActionStore;
     }
     id<MTLCommandBuffer> command = [ctx->queue commandBuffer];
     id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
     [encoder setRenderPipelineState:state];
-    if (depth && depth_func >= 0) {
+    if (depth && (depth_func >= 0 || stencil)) {
         MTLDepthStencilDescriptor *dd = [[MTLDepthStencilDescriptor alloc] init];
-        dd.depthCompareFunction = (MTLCompareFunction)depth_func;
-        dd.depthWriteEnabled = depth_write ? YES : NO;
+        /* With the depth test off nothing compares and nothing writes. */
+        dd.depthCompareFunction = depth_func >= 0 ? (MTLCompareFunction)depth_func : MTLCompareFunctionAlways;
+        dd.depthWriteEnabled = (depth_func >= 0 && depth_write) ? YES : NO;
+        if (stencil) {
+            for (int face = 0; face < 2; face++) {
+                const int *s = stencil + face * 7;
+                MTLStencilDescriptor *sd = [[MTLStencilDescriptor alloc] init];
+                sd.stencilCompareFunction = (MTLCompareFunction)s[0];
+                sd.readMask = (uint32_t)s[2] & 0xFF;
+                sd.writeMask = (uint32_t)s[3] & 0xFF;
+                sd.stencilFailureOperation = (MTLStencilOperation)s[4];
+                sd.depthFailureOperation = (MTLStencilOperation)s[5];
+                sd.depthStencilPassOperation = (MTLStencilOperation)s[6];
+                if (face == 0) dd.frontFaceStencil = sd; else dd.backFaceStencil = sd;
+                [sd release];
+            }
+        }
         id<MTLDepthStencilState> ds = [ctx->device newDepthStencilStateWithDescriptor:dd];
         [dd release];
         [encoder setDepthStencilState:ds];
         [ds release];
     }
+    if (depth && stencil)
+        [encoder setStencilFrontReferenceValue:(uint32_t)stencil[1] & 0xFF backReferenceValue:(uint32_t)stencil[8] & 0xFF];
     [encoder setDepthBias:depth_bias[0] slopeScale:depth_bias[1] clamp:0.0f];
     [encoder setCullMode:(MTLCullMode)cull];
     /* The vertex wrapper negates y, which reverses winding as Metal sees it. */

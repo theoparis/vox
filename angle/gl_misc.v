@@ -5,8 +5,9 @@ module angle
 // Remaining GLES 2 state: hints, line width, polygon offset, sample coverage,
 // pixel storage, stencil state, constant vertex attributes, and the capabilities
 // that have no rendering effect here. Where state is accepted but has no
-// effect it is because the feature is absent, not ignored: there is no stencil
-// buffer or multisampling, so those tests pass trivially as GL specifies.
+// effect it is because the feature is absent, not ignored: there is no
+// multisampling, so those tests pass trivially as GL specifies. Stencil state
+// is real and drives the Metal stencil test.
 
 pub const gl_dither = u32(0x0BD0)
 pub const gl_stencil_test_cap = u32(0x0B90)
@@ -120,22 +121,68 @@ pub fn (mut c Context) clear_stencil(s int) {
 	c.misc.clear_stencil = s
 }
 
+// StencilFace is the stencil state of one polygon face. Masks keep the full
+// 32 bits GL stores; only the low 8 reach the 8-bit stencil plane.
+pub struct StencilFace {
+pub mut:
+	func  u32 = gl_always
+	ref   int
+	mask  u32 = 0xFFFFFFFF
+	write u32 = 0xFFFFFFFF
+	fail  u32 = gl_keep
+	zfail u32 = gl_keep
+	zpass u32 = gl_keep
+}
+
+pub struct StencilState {
+pub mut:
+	front StencilFace
+	back  StencilFace
+}
+
 pub fn (mut c Context) stencil_func(func u32, ref int, mask u32) {
 	c.stencil_func_separate(gl_front_and_back, func, ref, mask)
 }
 
+// stencil_func_separate clamps the reference to the 8-bit plane, as GL does.
 pub fn (mut c Context) stencil_func_separate(face u32, func u32, ref int, mask u32) {
 	if !is_face(face) || !is_compare_func(func) {
 		c.set_error(gl_invalid_enum)
+		return
+	}
+	r := if ref < 0 {
+		0
+	} else if ref > 255 {
+		255
+	} else {
+		ref
+	}
+	if face != gl_back {
+		c.stencil.front.func = func
+		c.stencil.front.ref = r
+		c.stencil.front.mask = mask
+	}
+	if face != gl_front {
+		c.stencil.back.func = func
+		c.stencil.back.ref = r
+		c.stencil.back.mask = mask
 	}
 }
 
 pub fn (mut c Context) stencil_mask(mask u32) {
+	c.stencil_mask_separate(gl_front_and_back, mask)
 }
 
 pub fn (mut c Context) stencil_mask_separate(face u32, mask u32) {
 	if !is_face(face) {
 		c.set_error(gl_invalid_enum)
+		return
+	}
+	if face != gl_back {
+		c.stencil.front.write = mask
+	}
+	if face != gl_front {
+		c.stencil.back.write = mask
 	}
 }
 
@@ -146,7 +193,47 @@ pub fn (mut c Context) stencil_op(fail u32, zfail u32, zpass u32) {
 pub fn (mut c Context) stencil_op_separate(face u32, fail u32, zfail u32, zpass u32) {
 	if !is_face(face) || !is_stencil_op(fail) || !is_stencil_op(zfail) || !is_stencil_op(zpass) {
 		c.set_error(gl_invalid_enum)
+		return
 	}
+	if face != gl_back {
+		c.stencil.front.fail = fail
+		c.stencil.front.zfail = zfail
+		c.stencil.front.zpass = zpass
+	}
+	if face != gl_front {
+		c.stencil.back.fail = fail
+		c.stencil.back.zfail = zfail
+		c.stencil.back.zpass = zpass
+	}
+}
+
+fn stencil_op_code(op u32) i32 {
+	return match op {
+		gl_zero { 1 }
+		gl_replace { 2 }
+		gl_incr { 3 }
+		gl_decr { 4 }
+		gl_invert { 5 }
+		gl_incr_wrap { 6 }
+		gl_decr_wrap { 7 }
+		else { 0 } // GL_KEEP
+	}
+}
+
+fn stencil_face_codes(f StencilFace) []i32 {
+	return [i32(depth_func_code(f.func) or { 7 }), i32(f.ref), i32(f.mask & 0xFF), i32(f.write & 0xFF),
+		stencil_op_code(f.fail), stencil_op_code(f.zfail), stencil_op_code(f.zpass)]
+}
+
+// stencil_codes is the draw's stencil description, empty when the test is off
+// or the target has no stencil plane (the test then always passes).
+fn (c &Context) stencil_codes(target RenderTarget) []i32 {
+	if !c.misc.stencil_test || !target.has_stencil {
+		return []i32{}
+	}
+	mut out := stencil_face_codes(c.stencil.front)
+	out << stencil_face_codes(c.stencil.back)
+	return out
 }
 
 // vertex_attrib_const sets the generic value of attribute index, used when the

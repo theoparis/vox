@@ -62,12 +62,16 @@ and `GL_TRIANGLE_STRIP` draws.
   level 0 discards the chain. Sampling
   the texture being rendered to is `INVALID_OPERATION`. `glTexSubImage2D` reads
   back and re-uploads the whole image until the backend gains a region upload.
-- Stencil: there is no stencil buffer. `glStencil*` validate their enums and
-  `GL_STENCIL_TEST` can be enabled, but nothing is stored or applied: with no
-  stencil buffer the test passes, as GL specifies. The config reports stencil size 0,
-  clearing the stencil bit is a no-op, and stencil or DEPTH_STENCIL renderbuffer
-  formats and attachments return `INVALID_OPERATION`. Color renderbuffers and
-  depth textures are not implemented either.
+- Stencil: an 8-bit plane shares one `Depth32Float_Stencil8` texture with depth.
+  The default surface (config stencil size 8) and renderbuffers of format
+  `STENCIL_INDEX8`, `DEPTH24_STENCIL8` or `DEPTH_STENCIL` provide it; attach with
+  `STENCIL_ATTACHMENT` or `DEPTH_STENCIL_ATTACHMENT`. Func, reference, masks and
+  ops are kept per face and drive Metal's stencil test; a target with no stencil
+  plane always passes. Limits: a depth renderbuffer and a different stencil
+  renderbuffer cannot be attached together (`FRAMEBUFFER_UNSUPPORTED`), and a
+  stencil clear with a partial write mask is `INVALID_OPERATION`, like a scissored
+  or color-masked clear (a zero mask is a no-op). Color renderbuffers and depth
+  textures are not implemented.
 - `glLineWidth` stores the width, but Metal draws one-pixel lines, which is
   also the reported range. Sample coverage and dither are tracked, not applied.
 - Integer and bool uniform vectors do not exist in the shader subset, so
@@ -142,9 +146,7 @@ Notes:
   `KHRONOS_INCLUDE=<dir> sh tools/test_angle_capi.sh` runs it. The Khronos EGL and
   GLES headers plus ANGLE's `eglext_angle.h` and `gl2ext_angle.h` are needed and
   are not vendored.
-- **Known gaps for webgl:** no stencil (a `stencil: true` drawing buffer asks for
-  `DEPTH24_STENCIL8`/`STENCIL_INDEX8`, which are refused), no ES 3, and the
-  ANGLE-only extensions WebGL requests (WebGL compatibility, robust client
+- **Known gaps for webgl:** no ES 3, and the ANGLE-only extensions WebGL requests (WebGL compatibility, robust client
   memory) are not advertised.
 - **WebGL still uses ANGLE by default.** Nothing selects the V library unless the
   variable is set.

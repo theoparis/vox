@@ -203,7 +203,7 @@ fn (c &Context) query_fixed_values(pname u32) ?[]f64 {
 		0x0D50 { [f64(0)] } // SUBPIXEL_BITS
 		0x0D52, 0x0D53, 0x0D54, 0x0D55 { [f64(8)] } // R, G, B, A bits
 		0x0D56 { [f64(if c.framebuffer_has_depth() { 24 } else { 0 })] }
-		0x0D57 { [f64(0)] } // STENCIL_BITS
+		0x0D57 { [f64(if c.framebuffer_has_stencil() { 8 } else { 0 })] } // STENCIL_BITS
 		0x84E8, 0x851C { [f64(max_texture_dimension)] } // MAX_RENDERBUFFER_SIZE, MAX_CUBE_MAP_TEXTURE_SIZE
 		0x846D, 0x846E { [f64(1), f64(1)] } // ALIASED_POINT_SIZE_RANGE, ALIASED_LINE_WIDTH_RANGE
 		0x86A2 { [f64(0)] } // NUM_COMPRESSED_TEXTURE_FORMATS
@@ -212,16 +212,32 @@ fn (c &Context) query_fixed_values(pname u32) ?[]f64 {
 		0x85B5 { [f64(c.bound_vao)] } // VERTEX_ARRAY_BINDING
 		0x8B9A { [f64(0x1908)] } // IMPLEMENTATION_COLOR_READ_FORMAT
 		0x8B9B { [f64(0x1401)] } // IMPLEMENTATION_COLOR_READ_TYPE
-		0x0B94 { [f64(0x1E00)] } // STENCIL_FAIL: KEEP
-		0x0B95, 0x0B96 { [f64(0x1E00)] } // STENCIL_PASS_DEPTH_FAIL, _PASS
-		0x0B92, 0x8800 { [f64(0x0207)] } // STENCIL_FUNC, BACK_FUNC: ALWAYS
-		0x8801, 0x8802 { [f64(0x1E00)] } // BACK_FAIL, BACK_PASS_DEPTH_FAIL
-		0x8803 { [f64(0x1E00)] } // BACK_PASS_DEPTH_PASS
-		0x0B97, 0x8CA3 { [f64(0)] } // STENCIL_REF, BACK_REF
-		0x0B93, 0x0B98, 0x8CA4, 0x8CA5 { [f64(-1)] } // value/writemasks
+		0x0B92 { [f64(c.stencil.front.func)] }
+		0x0B93 { [f64(i32(c.stencil.front.mask))] }
+		0x0B97 { [f64(c.stencil.front.ref)] }
+		0x0B98 { [f64(i32(c.stencil.front.write))] }
+		0x0B94 { [f64(c.stencil.front.fail)] }
+		0x0B95 { [f64(c.stencil.front.zfail)] }
+		0x0B96 { [f64(c.stencil.front.zpass)] }
+		0x8800 { [f64(c.stencil.back.func)] }
+		0x8CA4 { [f64(i32(c.stencil.back.mask))] }
+		0x8CA3 { [f64(c.stencil.back.ref)] }
+		0x8CA5 { [f64(i32(c.stencil.back.write))] }
+		0x8801 { [f64(c.stencil.back.fail)] }
+		0x8802 { [f64(c.stencil.back.zfail)] }
+		0x8803 { [f64(c.stencil.back.zpass)] }
 		0x0B91 { [f64(c.misc.clear_stencil)] }
 		else { none }
 	}
+}
+
+// framebuffer_has_stencil reports whether the bound draw target has stencil.
+fn (c &Context) framebuffer_has_stencil() bool {
+	if c.bound_framebuffer == 0 {
+		return true
+	}
+	fb := c.framebuffers[c.bound_framebuffer]
+	return fb.stencil_rb != 0
 }
 
 // framebuffer_has_depth reports whether the bound draw target has depth.

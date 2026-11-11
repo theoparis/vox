@@ -258,7 +258,7 @@ fn test_state_setters_validate_and_store() {
 	c.enable(gl_polygon_offset_fill)
 	assert !c.is_enabled(gl_dither) && c.is_enabled(gl_stencil_test_cap)
 	assert c.is_enabled(gl_sample_coverage_cap) && c.is_enabled(gl_polygon_offset_fill)
-	// Stencil state validates its enums even though there is no stencil buffer.
+	// Stencil state validates its enums.
 	c.stencil_func(gl_always, 0, 0xff)
 	c.stencil_func_separate(gl_front, gl_less, 1, 0xff)
 	c.stencil_op(gl_keep, gl_incr_wrap, gl_invert)

@@ -660,30 +660,45 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 	}
 	// A failed GPU submission has no closer GL error than INVALID_OPERATION.
 	c.display.backend.draw(DrawDesc{
-		target:       target.handle
-		pipeline:     pipeline
-		primitive:    prim
-		start:        u32(first)
-		count:        u32(count)
-		buffers:      buffers
-		offsets:      offsets
-		uniforms:     p.uniform_data
-		viewport:     view
-		scissor:      scis
-		textures:     textures
-		samplers:     samplers
-		blend_color:  [c.blend.color[0], c.blend.color[1], c.blend.color[2], c.blend.color[3]]
-		instances:    u32(instances)
-		index_buffer: index_handle
-		index_type:   if isz == 4 { 2 } else if isz > 0 { 1 } else { 0 }
-		index_offset: if index_type == gl_unsigned_byte { u32(0) } else { u32(index_offset) }
+		target:        target.handle
+		pipeline:      pipeline
+		primitive:     prim
+		start:         u32(first)
+		count:         u32(count)
+		buffers:       buffers
+		offsets:       offsets
+		uniforms:      p.uniform_data
+		viewport:      view
+		scissor:       scis
+		textures:      textures
+		samplers:      samplers
+		blend_color:   [c.blend.color[0], c.blend.color[1], c.blend.color[2], c.blend.color[3]]
+		instances:     u32(instances)
+		index_buffer:  index_handle
+		index_type:    if isz == 4 {
+			2
+		} else if isz > 0 {
+			1
+		} else {
+			0
+		}
+		index_offset:  if index_type == gl_unsigned_byte { u32(0) } else { u32(index_offset) }
 		depth_texture: target.depth
-		depth_func:    if c.depth.test && target.depth != 0 { depth_func_code(c.depth.func) or { i32(7) } } else { i32(-1) }
+		depth_func:    if c.depth.test && target.has_depth {
+			depth_func_code(c.depth.func) or { i32(7) }
+		} else {
+			i32(-1)
+		}
 		depth_write:   c.depth.write_enabled()
 		depth_range:   [c.depth.near, c.depth.far]
-		depth_bias:    if c.misc.polygon_offset { [c.misc.polygon_units, c.misc.polygon_factor] } else { [f32(0), 0] }
+		depth_bias:    if c.misc.polygon_offset {
+			[c.misc.polygon_units, c.misc.polygon_factor]
+		} else {
+			[f32(0), 0]
+		}
 		cull:          if cull < 0 { i32(0) } else { cull }
 		front_ccw:     c.depth.front_face == gl_ccw
+		stencil:       c.stencil_codes(target)
 	}) or { c.set_error(gl_invalid_operation) }
 	c.release_temps(temps)
 }

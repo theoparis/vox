@@ -40,7 +40,7 @@ pub struct Display {
 mut:
 	backend         Backend
 	terminated      bool
-	egl_error       int = egl_success
+	egl_error       int      = egl_success
 	current_context &Context = unsafe { nil }
 }
 
@@ -52,7 +52,7 @@ pub:
 	blue_size       int = 8
 	alpha_size      int = 8
 	depth_size      int = 24
-	stencil_size    int // surfaces have no stencil buffer yet
+	stencil_size    int = 8
 	renderable_type int = egl_opengl_es2_bit | egl_opengl_es3_bit
 	surface_type    int = egl_pbuffer_bit
 }
@@ -123,12 +123,12 @@ pub fn (mut d Display) create_pbuffer_surface(width int, height int) !&Surface {
 		d.backend.destroy_texture(texture)
 		return d.fail(egl_bad_alloc, err.msg())
 	}
-	// The default framebuffer has a depth buffer, initially 1.0 as in GL.
+	// The default framebuffer has a depth buffer (1.0) and stencil buffer (0).
 	depth := d.backend.create_depth_texture(width, height) or {
 		d.backend.destroy_texture(texture)
 		return d.fail(egl_bad_alloc, err.msg())
 	}
-	d.backend.clear_depth(depth, 1.0) or {
+	d.backend.clear_depth_stencil(depth, 1.0, 0, 3) or {
 		d.backend.destroy_texture(depth)
 		d.backend.destroy_texture(texture)
 		return d.fail(egl_bad_alloc, err.msg())

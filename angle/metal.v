@@ -19,7 +19,7 @@ fn C.vox_angle_mtl_buffer_read(voidptr, u32, i64, voidptr, i64) int
 fn C.vox_angle_mtl_texture_create(voidptr, int, int, int) u32
 fn C.vox_angle_mtl_generate_mipmaps(voidptr, u32) int
 fn C.vox_angle_mtl_depth_create(voidptr, int, int) u32
-fn C.vox_angle_mtl_depth_clear(voidptr, u32, f32) int
+fn C.vox_angle_mtl_depth_clear(voidptr, u32, f32, int, int) int
 fn C.vox_angle_mtl_texture_clear(voidptr, u32, f32, f32, f32, f32) int
 fn C.vox_angle_mtl_texture_upload(voidptr, u32, int, int, voidptr) int
 fn C.vox_angle_mtl_texture_read(voidptr, u32, int, int, voidptr) int
@@ -133,9 +133,9 @@ pub fn (mut b MetalBackend) create_depth_texture(width int, height int) !u32 {
 	}
 }
 
-pub fn (mut b MetalBackend) clear_depth(texture u32, depth f32) ! {
+pub fn (mut b MetalBackend) clear_depth_stencil(texture u32, depth f32, stencil u8, mask int) ! {
 	$if macos {
-		if C.vox_angle_mtl_depth_clear(b.context, texture, depth) == 0 {
+		if C.vox_angle_mtl_depth_clear(b.context, texture, depth, int(stencil), mask) == 0 {
 			return error('Metal depth clear failed')
 		}
 	} $else {

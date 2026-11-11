@@ -122,7 +122,7 @@ fn test_unsupported_and_invalid_requests_record_gl_errors() {
 		f.teardown()
 	}
 	mut c := f.display.current()
-	// Clearing the stencil buffer of a surface that has none is a no-op, not an error.
+	// The default framebuffer has a stencil plane, so this clear is valid.
 	c.clear(gl_stencil_buffer_bit)
 	assert c.get_error() == gl_no_error
 	c.clear(0x8000)

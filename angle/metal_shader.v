@@ -5,7 +5,7 @@ module angle
 $if macos {
 	fn C.vox_angle_mtl_library_create(voidptr, voidptr, voidptr, i32) u32
 	fn C.vox_angle_mtl_pipeline_create(voidptr, u32, voidptr, u32, voidptr, i32, voidptr, voidptr, voidptr, voidptr, i32, voidptr, i32, i32, voidptr, i32) u32
-	fn C.vox_angle_mtl_draw(voidptr, u32, u32, i32, u32, u32, i32, voidptr, voidptr, i32, voidptr, voidptr, voidptr, voidptr, i32, voidptr, voidptr, voidptr, u32, i32, u32, u32, i32, i32, voidptr, i32, i32, voidptr, u32) i32
+	fn C.vox_angle_mtl_draw(voidptr, u32, u32, i32, u32, u32, i32, voidptr, voidptr, i32, voidptr, voidptr, voidptr, voidptr, i32, voidptr, voidptr, voidptr, u32, i32, u32, u32, i32, i32, voidptr, i32, i32, voidptr, u32, voidptr) i32
 }
 
 // bridge_log turns a fixed-size bridge log buffer into a message.
@@ -65,7 +65,11 @@ pub fn (mut b MetalBackend) draw(desc DrawDesc) ! {
 			desc.textures.data, desc.samplers.data, desc.blend_color.data, desc.index_buffer,
 			desc.index_type, desc.index_offset, desc.depth_texture, desc.depth_func, i32(desc.depth_write),
 			desc.depth_range.data, desc.cull, i32(desc.front_ccw), desc.depth_bias.data,
-			desc.instances)
+			desc.instances, if desc.stencil.len == 14 {
+				voidptr(desc.stencil.data)
+			} else {
+				unsafe { nil }
+			})
 		if ok == 0 {
 			return error('Metal draw failed')
 		}

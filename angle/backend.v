@@ -11,14 +11,16 @@ mut:
 	create_texture(width int, height int) !u32
 	upload_texture(texture u32, width int, height int, pixels []u8) !
 	clear_texture(texture u32, r f32, g f32, b f32, a f32) !
-	// create_depth_texture makes a 32-bit float depth attachment; destroy it
-	// with destroy_texture.
+	// create_depth_texture makes a combined 32-bit float depth and 8-bit
+	// stencil attachment; destroy it with destroy_texture.
 	create_depth_texture(width int, height int) !u32
 	// create_texture_mipmapped makes a color texture with a full mip chain.
 	create_texture_mipmapped(width int, height int) !u32
 	// generate_mipmaps fills levels 1.. of a mipmapped texture from level 0.
 	generate_mipmaps(texture u32) !
-	clear_depth(texture u32, depth f32) !
+	// clear_depth_stencil clears the planes selected by mask (bit 0 depth, bit 1
+	// stencil) of a depth texture; the others keep their contents.
+	clear_depth_stencil(texture u32, depth f32, stencil u8, mask int) !
 	read_texture(texture u32, width int, height int) ![]u8
 	destroy_texture(texture u32)
 	create_buffer(size int) !u32
@@ -109,6 +111,12 @@ pub:
 	front_ccw bool
 	// depth_bias is {units, slope factor} from glPolygonOffset, or {0, 0}.
 	depth_bias []f32
+	// stencil is empty with the stencil test off. Otherwise it holds 14 ints,
+	// front face then back face: compare (as depth_func), reference, read mask,
+	// write mask, then the fail, depth-fail and pass operations (0 keep, 1 zero,
+	// 2 replace, 3 increment clamp, 4 decrement clamp, 5 invert, 6 increment wrap,
+	// 7 decrement wrap).
+	stencil []i32
 	// viewport and scissor are {x, y, width, height} in GL window coordinates,
 	// already clipped to the target. The scissor always covers the draw.
 	viewport []i32

@@ -55,6 +55,30 @@ int main(void)
     CHECK(vox_egl_copy_drawing_buffer(ctx, 8, 8, pixels));
     CHECK(pixels[0] == 255 && pixels[1] == 0 && pixels[3] == 255);
     CHECK(pixels[(7 * 8 + 7) * 4] == 255);
+    /* A depth+stencil drawing buffer: native_egl.h asks for DEPTH24_STENCIL8 as a
+     * DEPTH_STENCIL_ATTACHMENT. */
+    CHECK(vox_egl_allocate_surface(ctx, 8, 8, 1, 1));
+    GLint stencil_bits = 0;
+    glGetIntegerv(GL_STENCIL_BITS, &stencil_bits);
+    CHECK(stencil_bits == 8);
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->framebuffer);
+    glClearColor(0, 0, 0, 1);
+    glClearStencil(0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_ALWAYS, 1, 0xff);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+    float left[] = { -1, -1, 0, -1, -1, 1, 0, 1 };
+    glBufferData(GL_ARRAY_BUFFER, sizeof left, left, GL_STATIC_DRAW);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glStencilFunc(GL_EQUAL, 1, 0xff);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+    glBufferData(GL_ARRAY_BUFFER, sizeof quad, quad, GL_STATIC_DRAW);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    CHECK(glGetError() == 0);
+    CHECK(vox_egl_copy_drawing_buffer(ctx, 8, 8, pixels));
+    CHECK(pixels[(4 * 8 + 1) * 4] == 255 && pixels[(4 * 8 + 6) * 4] == 0);
     printf("webgl glue ok: %s\n", (const char *)glGetString(GL_RENDERER));
     return 0;
 }

@@ -47,6 +47,7 @@ pub const gl_framebuffer_complete = u32(0x8cd5)
 pub const gl_framebuffer_incomplete_attachment = u32(0x8cd6)
 pub const gl_framebuffer_incomplete_missing_attachment = u32(0x8cd7)
 pub const gl_framebuffer_incomplete_dimensions = u32(0x8cd9)
+pub const gl_framebuffer_unsupported = u32(0x8cdd)
 
 // GLBuffer and GLTexture pair a GL name with its backend resource. A zero
 // handle means the name exists but has no storage allocated yet.
@@ -76,6 +77,7 @@ struct GLFramebuffer {
 mut:
 	color_texture u32
 	depth_rb      u32
+	stencil_rb    u32
 }
 
 // GLRenderbuffer is a depth buffer; handle is 0 until storage is allocated.
@@ -87,6 +89,15 @@ mut:
 	format u32 = gl_depth_component16
 }
 
+// has_depth and has_stencil say which planes the format provides.
+fn (r &GLRenderbuffer) has_depth() bool {
+	return r.format != gl_stencil_index8
+}
+
+fn (r &GLRenderbuffer) has_stencil() bool {
+	return r.format == gl_stencil_index8 || r.format == gl_depth24_stencil8 || r.format == gl_depth_stencil_format
+}
+
 // Context is one OpenGL ES context. It owns the GL object namespace and the
 // bindings; backend resources are released through its display.
 @[heap]
@@ -94,28 +105,29 @@ pub struct Context {
 pub:
 	version int
 mut:
-	display           &Display = unsafe { nil }
-	surface           &Surface = unsafe { nil }
-	destroyed         bool
-	error             u32
-	next_name         u32 = 1
-	clear_color       [4]f32
-	buffers           map[u32]GLBuffer
-	textures          map[u32]GLTexture
-	framebuffers      map[u32]GLFramebuffer
-	renderbuffers     map[u32]GLRenderbuffer
+	display            &Display = unsafe { nil }
+	surface            &Surface = unsafe { nil }
+	destroyed          bool
+	error              u32
+	next_name          u32 = 1
+	clear_color        [4]f32
+	buffers            map[u32]GLBuffer
+	textures           map[u32]GLTexture
+	framebuffers       map[u32]GLFramebuffer
+	renderbuffers      map[u32]GLRenderbuffer
 	bound_renderbuffer u32
-	depth             DepthState
-	misc              MiscState
-	attrib_consts     [16]AttribConst
-	vaos              map[u32]VertexArray
-	default_vao       VertexArray
-	bound_vao         u32
-	bound_buffers     map[u32]u32
-	texture_units     [8]u32
-	active_unit       int
+	depth              DepthState
+	misc               MiscState
+	stencil            StencilState
+	attrib_consts      [16]AttribConst
+	vaos               map[u32]VertexArray
+	default_vao        VertexArray
+	bound_vao          u32
+	bound_buffers      map[u32]u32
+	texture_units      [8]u32
+	active_unit        int
 	// black_texture is the 1x1 texture an incomplete sampled texture reads as.
-	black_texture u32
+	black_texture     u32
 	bound_framebuffer u32
 	shaders           map[u32]&Shader
 	programs          map[u32]&Program
@@ -134,8 +146,11 @@ struct RenderTarget {
 	handle u32
 	width  int
 	height int
-	// depth is the depth attachment, or 0 when the target has none.
-	depth u32
+	// depth is the combined depth/stencil texture, or 0 when the target has
+	// neither plane; has_depth and has_stencil say which planes exist.
+	depth       u32
+	has_depth   bool
+	has_stencil bool
 }
 
 // set_error keeps only the first pending error, as GL does.
@@ -478,10 +493,12 @@ fn (mut c Context) resolve_target() ?RenderTarget {
 			return none
 		}
 		return RenderTarget{
-			handle: c.surface.texture
-			width:  c.surface.width
-			height: c.surface.height
-			depth:  c.surface.depth
+			handle:      c.surface.texture
+			width:       c.surface.width
+			height:      c.surface.height
+			depth:       c.surface.depth
+			has_depth:   true
+			has_stencil: true
 		}
 	}
 	framebuffer := c.framebuffers[c.bound_framebuffer] or { return none }
@@ -493,18 +510,38 @@ fn (mut c Context) resolve_target() ?RenderTarget {
 		return none
 	}
 	mut depth := u32(0)
+	mut has_depth := false
+	mut has_stencil := false
 	if framebuffer.depth_rb != 0 {
 		rb := c.renderbuffers[framebuffer.depth_rb] or { return none }
-		if rb.handle == 0 || rb.width != texture.width || rb.height != texture.height {
+		if rb.handle == 0 || rb.width != texture.width || rb.height != texture.height
+			|| !rb.has_depth() {
 			return none
 		}
 		depth = rb.handle
+		has_depth = true
+		has_stencil = framebuffer.stencil_rb == framebuffer.depth_rb
+	}
+	if framebuffer.stencil_rb != 0 && framebuffer.stencil_rb != framebuffer.depth_rb {
+		// A separate stencil renderbuffer is only usable without a depth one.
+		if framebuffer.depth_rb != 0 {
+			return none
+		}
+		rb := c.renderbuffers[framebuffer.stencil_rb] or { return none }
+		if rb.handle == 0 || rb.width != texture.width || rb.height != texture.height
+			|| !rb.has_stencil() {
+			return none
+		}
+		depth = rb.handle
+		has_stencil = true
 	}
 	return RenderTarget{
-		handle: texture.handle
-		width:  texture.width
-		height: texture.height
-		depth:  depth
+		handle:      texture.handle
+		width:       texture.width
+		height:      texture.height
+		depth:       depth
+		has_depth:   has_depth
+		has_stencil: has_stencil
 	}
 }
 
@@ -534,11 +571,24 @@ pub fn (mut c Context) check_framebuffer_status(target u32) u32 {
 	}
 	if framebuffer.depth_rb != 0 {
 		rb := c.renderbuffers[framebuffer.depth_rb] or { return gl_framebuffer_incomplete_attachment }
-		if rb.handle == 0 {
+		if rb.handle == 0 || !rb.has_depth() {
 			return gl_framebuffer_incomplete_attachment
 		}
 		if rb.width != texture.width || rb.height != texture.height {
 			return gl_framebuffer_incomplete_dimensions
+		}
+	}
+	if framebuffer.stencil_rb != 0 {
+		rb := c.renderbuffers[framebuffer.stencil_rb] or { return gl_framebuffer_incomplete_attachment }
+		if rb.handle == 0 || !rb.has_stencil() {
+			return gl_framebuffer_incomplete_attachment
+		}
+		if rb.width != texture.width || rb.height != texture.height {
+			return gl_framebuffer_incomplete_dimensions
+		}
+		// One texture backs both planes, so depth and stencil must share it.
+		if framebuffer.depth_rb != 0 && framebuffer.depth_rb != framebuffer.stencil_rb {
+			return gl_framebuffer_unsupported
 		}
 	}
 	return gl_framebuffer_complete
@@ -563,15 +613,22 @@ pub fn (mut c Context) clear(mask u32) {
 	}
 	want_color := mask & gl_color_buffer_bit != 0
 	want_depth := mask & gl_depth_buffer_bit != 0
-	if !want_color && !want_depth {
-		return
-	}
-	if c.scissor_test || (want_color && !c.blend.full_mask()) {
-		c.set_error(gl_invalid_operation)
+	want_stencil := mask & gl_stencil_buffer_bit != 0
+	if !want_color && !want_depth && !want_stencil {
 		return
 	}
 	target := c.resolve_target() or {
 		c.set_error(gl_invalid_framebuffer_operation)
+		return
+	}
+	// A plane the target lacks is ignored. A stencil clear honors the write
+	// mask, which a load-action clear cannot do for a partial mask.
+	do_depth := want_depth && target.has_depth && c.depth.write_enabled()
+	front_mask := c.stencil.front.write & 0xFF
+	do_stencil := want_stencil && target.has_stencil && front_mask != 0
+	partial_stencil := do_stencil && front_mask != 0xFF
+	if c.scissor_test || (want_color && !c.blend.full_mask()) || partial_stencil {
+		c.set_error(gl_invalid_operation)
 		return
 	}
 	if want_color {
@@ -581,8 +638,10 @@ pub fn (mut c Context) clear(mask u32) {
 			return
 		}
 	}
-	if want_depth && target.depth != 0 && c.depth.write_enabled() {
-		c.display.backend.clear_depth(target.depth, c.depth.clear_value) or {
+	planes := (if do_depth { 1 } else { 0 }) | (if do_stencil { 2 } else { 0 })
+	if planes != 0 {
+		c.display.backend.clear_depth_stencil(target.depth, c.depth.clear_value, u8(c.misc.clear_stencil & 0xFF),
+			planes) or {
 			c.set_error(gl_out_of_memory)
 			return
 		}
@@ -626,9 +685,9 @@ pub fn (mut c Context) read_pixels(x int, y int, width int, height int, format u
 // with the default framebuffer bound and no GL objects.
 fn new_context(display &Display, version int) &Context {
 	return &Context{
-		version: version
-		display: display
-		shaders: map[u32]&Shader{}
+		version:  version
+		display:  display
+		shaders:  map[u32]&Shader{}
 		programs: map[u32]&Program{}
 	}
 }
