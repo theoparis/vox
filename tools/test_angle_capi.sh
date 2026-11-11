@@ -23,11 +23,9 @@ PY
 cc -o "$out/capi_smoke" angle/capi_smoke.c
 "$out/capi_smoke" "$out/libvoxangle.dylib"
 
-# Optional: build webgl/native_egl.h unmodified against the Khronos and ANGLE
-# headers in $KHRONOS_INCLUDE (EGL/, GLES2/, GLES3/, KHR/; the two *_angle.h
-# headers come from the ANGLE repository's include/) and run it through the
-# VOX_WEBGL_ANGLE_V selector. Skipped when the variable is unset.
-if [ -n "${KHRONOS_INCLUDE:-}" ]; then
-    cc -w -I"$KHRONOS_INCLUDE" -I webgl -o "$out/webgl_glue" angle/webgl_glue_smoke.c
-    VOX_WEBGL_ANGLE_V="$out/libvoxangle.dylib" "$out/webgl_glue"
-fi
+# Build webgl/native_egl.h unmodified against the vendored headers and run it
+# twice: through the VOX_WEBGL_ANGLE_V selector, and through the fallback that
+# applies when ANGLE's libraries are absent (the library sits next to the binary).
+cc -w -I webgl/include -I webgl -o "$out/webgl_glue" angle/webgl_glue_smoke.c
+VOX_WEBGL_ANGLE_V="$out/libvoxangle.dylib" "$out/webgl_glue"
+env -u VOX_WEBGL_ANGLE_V "$out/webgl_glue"

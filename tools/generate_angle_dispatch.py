@@ -36,17 +36,29 @@ VOX_NATIVE_STATE dispatch_once_t vox_angle_once;
 static int vox_angle_prepare(void) {
     dispatch_once(&vox_angle_once, ^{
         VoxANGLEAPI *api = &vox_angle_api;
-        // VOX_WEBGL_ANGLE_V selects the V angle translation layer (angle/): its
-        // value is the path of libvoxangle.dylib, or "1" for @rpath/libvoxangle.dylib.
-        // It exports both the EGL and GLES entry points from one library.
+        // The V angle translation layer (angle/) exports both the EGL and GLES
+        // entry points from one library, libvoxangle.dylib. VOX_WEBGL_ANGLE_V
+        // forces it: its value is a path, or "1" for the bundled copy. Otherwise
+        // ANGLE is preferred and the V layer is the fallback when ANGLE's
+        // libraries are not installed.
         const char *v_layer = getenv("VOX_WEBGL_ANGLE_V");
-        if (v_layer && v_layer[0]) {
-            const char *path = v_layer[0] == '1' && !v_layer[1] ? "@rpath/libvoxangle.dylib" : v_layer;
-            api->egl_library = dlopen(path, RTLD_LAZY | RTLD_LOCAL);
+        int force_v = v_layer && v_layer[0];
+        if (force_v && !(v_layer[0] == '1' && !v_layer[1])) {
+            api->egl_library = dlopen(v_layer, RTLD_LAZY | RTLD_LOCAL);
             api->gles_library = api->egl_library;
         } else {
-            api->egl_library = dlopen("@rpath/libEGL.dylib", RTLD_LAZY | RTLD_LOCAL);
-            api->gles_library = dlopen("@rpath/libGLESv2.dylib", RTLD_LAZY | RTLD_LOCAL);
+            if (!force_v) {
+                api->egl_library = dlopen("@rpath/libEGL.dylib", RTLD_LAZY | RTLD_LOCAL);
+                api->gles_library = dlopen("@rpath/libGLESv2.dylib", RTLD_LAZY | RTLD_LOCAL);
+            }
+            if (!api->egl_library || !api->gles_library) {
+                if (api->gles_library) dlclose(api->gles_library);
+                if (api->egl_library) dlclose(api->egl_library);
+                api->egl_library = dlopen("@rpath/libvoxangle.dylib", RTLD_LAZY | RTLD_LOCAL);
+                if (!api->egl_library)
+                    api->egl_library = dlopen("@executable_path/libvoxangle.dylib", RTLD_LAZY | RTLD_LOCAL);
+                api->gles_library = api->egl_library;
+            }
         }
         int complete = api->egl_library && api->gles_library;
 #define VOX_ANGLE_RESOLVE(name) \\

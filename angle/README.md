@@ -135,18 +135,17 @@ Notes:
   `eglCreateContext` refuses ES 3.
 - `GL_EXTENSIONS` lists `GL_ANGLE_instanced_arrays` and
   `GL_OES_vertex_array_object`; `glRequestExtensionANGLE` accepts exactly those.
-- **Selecting it from webgl:** set `VOX_WEBGL_ANGLE_V` to the path of the built
-  `libvoxangle.dylib` (or `1` for `@rpath/libvoxangle.dylib`) and the dispatch
-  table in `webgl/angle_dispatch_darwin.h` loads it for both EGL and GLES instead
-  of `libEGL`/`libGLESv2`. ANGLE stays the default.
+- **Using it from webgl:** `webgl` builds without any system EGL/GLES package:
+  the Khronos and ANGLE headers are vendored in `webgl/include/`, and the
+  libraries load at run time (`webgl/angle_dispatch_darwin.h`). ANGLE is used when
+  its `libEGL`/`libGLESv2` are installed; otherwise the dispatch falls back to
+  `libvoxangle.dylib` (`@rpath`, then next to the executable), which
+  `build-prod-browser.sh` builds into the bundle. `VOX_WEBGL_ANGLE_V=1` (or a
+  path to the library) forces the V layer even when ANGLE is present.
 - **What has been run against it:** the webgl package tests have not, because they
   need ICU from the Ladybird build (absent here). `webgl_glue_smoke.c` compiles
-  `webgl/native_egl.h` unmodified and drives its create / drawing-buffer / clear /
-  shader draw / readback path through the selector;
-  `KHRONOS_INCLUDE=<dir> sh tools/test_angle_capi.sh` runs it. The Khronos EGL and
-  GLES headers plus ANGLE's `eglext_angle.h` and `gl2ext_angle.h` are needed and
-  are not vendored.
+  `webgl/native_egl.h` unmodified and runs its create / drawing-buffer / clear /
+  shader draw / stencil / readback path through both the selector and the
+  fallback; `tools/test_angle_capi.sh` runs it.
 - **Known gaps for webgl:** no ES 3, and the ANGLE-only extensions WebGL requests (WebGL compatibility, robust client
   memory) are not advertised.
-- **WebGL still uses ANGLE by default.** Nothing selects the V library unless the
-  variable is set.

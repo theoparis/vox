@@ -524,6 +524,28 @@ else
     rm -f "$binary_dir/libLadybirdVSkiaText.dylib"
 fi
 
+# WebGL falls back to the V angle translation layer when ANGLE's libraries are
+# not installed (webgl/angle_dispatch_darwin.h looks next to the executable).
+# It needs the C backend: fastc cannot build shared libraries. A failure here
+# leaves WebGL unavailable, as before, rather than failing the browser build.
+if [ "$(uname -s)" = Darwin ]; then
+    angle_tmp=$(mktemp -d "${TMPDIR:-/tmp}/vox-angle.XXXXXX")
+    if "$v_compiler" -b c -memory-limit 10G -enable-globals -d vox_angle_capi -shared \
+        -o "$angle_tmp/libvoxangle.dylib" "$repo_dir/angle" >"$angle_tmp/build.log" 2>&1; then
+        cp "$angle_tmp/libvoxangle.dylib" "$binary_dir/.libvoxangle.tmp"
+        chmod 755 "$binary_dir/.libvoxangle.tmp"
+        mv -f "$binary_dir/.libvoxangle.tmp" "$binary_dir/libvoxangle.dylib"
+        if command -v codesign >/dev/null 2>&1; then
+            codesign --force --sign - "$binary_dir/libvoxangle.dylib" >/dev/null
+        fi
+    else
+        echo "warning: libvoxangle.dylib was not built; WebGL needs ANGLE:" >&2
+        tail -5 "$angle_tmp/build.log" >&2
+        rm -f "$binary_dir/libvoxangle.dylib"
+    fi
+    rm -rf "$angle_tmp"
+fi
+
 if [ -n "$graphite_library" ]; then
     graphite_resource_tmp=$(mktemp "$binary_dir/.graphite-bridge.XXXXXX")
     cp "$graphite_library" "$graphite_resource_tmp"

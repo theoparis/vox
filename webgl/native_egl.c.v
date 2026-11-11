@@ -3,7 +3,9 @@
 module webgl
 
 $if macos {
-	#pkgconfig --cflags egl glesv2
+	// The Khronos and ANGLE headers are vendored in include/: libraries are
+	// loaded at run time, so no system EGL or GLES package is needed to build.
+	#flag darwin -I@DIR/include
 } $else $if windows {
 	#flag @DIR/../Build/deps/windows/native/webgl.a
 	#pkgconfig angleproject
