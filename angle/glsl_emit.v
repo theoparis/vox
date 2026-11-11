@@ -131,7 +131,8 @@ fn (mut em Emitter) write_function(f Func) {
 	em.out.write_string('}\n')
 }
 
-// write_entry emits the Metal entry point. The vertex wrapper flips Y: GL
+// write_entry emits the Metal entry point. The vertex wrapper also remaps
+// clip z from GL's [-w, w] to Metal's [0, w]. It flips Y: GL
 // window row 0 is the bottom, while Metal's row 0 is the top of the texture,
 // so readback in memory order matches glReadPixels only after the flip.
 fn (mut em Emitter) write_entry() {
@@ -152,7 +153,9 @@ fn (mut em Emitter) write_entry() {
 	if em.stage == .vertex {
 		em.out.write_string('vertex VS_Out vs_entry(VS_In _in [[stage_in]]${uparams}) {\n')
 		em.out.write_string('\tVS_Out _out{};\n\tf_main(_in, _out${uargs});\n')
-		em.out.write_string('\t_out.position.y = -_out.position.y;\n\treturn _out;\n}\n')
+		em.out.write_string('\t_out.position.y = -_out.position.y;\n')
+		// GL clip z spans [-w, w]; Metal's spans [0, w].
+		em.out.write_string('\t_out.position.z = (_out.position.z + _out.position.w) * 0.5;\n\treturn _out;\n}\n')
 		return
 	}
 	em.out.write_string('fragment FS_Out fs_entry(FS_In _in [[stage_in]]${uparams}) {\n')

@@ -52,7 +52,7 @@ pub:
 	blue_size       int = 8
 	alpha_size      int = 8
 	depth_size      int = 24
-	stencil_size    int = 8
+	stencil_size    int // surfaces have no stencil buffer yet
 	renderable_type int = egl_opengl_es2_bit | egl_opengl_es3_bit
 	surface_type    int = egl_pbuffer_bit
 }
@@ -65,6 +65,7 @@ pub:
 	height int
 mut:
 	texture   u32
+	depth     u32
 	destroyed bool
 }
 
@@ -122,10 +123,21 @@ pub fn (mut d Display) create_pbuffer_surface(width int, height int) !&Surface {
 		d.backend.destroy_texture(texture)
 		return d.fail(egl_bad_alloc, err.msg())
 	}
+	// The default framebuffer has a depth buffer, initially 1.0 as in GL.
+	depth := d.backend.create_depth_texture(width, height) or {
+		d.backend.destroy_texture(texture)
+		return d.fail(egl_bad_alloc, err.msg())
+	}
+	d.backend.clear_depth(depth, 1.0) or {
+		d.backend.destroy_texture(depth)
+		d.backend.destroy_texture(texture)
+		return d.fail(egl_bad_alloc, err.msg())
+	}
 	return &Surface{
 		width:   width
 		height:  height
 		texture: texture
+		depth:   depth
 	}
 }
 
@@ -136,6 +148,9 @@ pub fn (mut d Display) destroy_surface(mut surface Surface) {
 		return
 	}
 	d.backend.destroy_texture(surface.texture)
+	if surface.depth != 0 {
+		d.backend.destroy_texture(surface.depth)
+	}
 	surface.destroyed = true
 }
 

@@ -127,12 +127,43 @@ unsigned vox_angle_mtl_texture_create(void *handle, int width, int height)
     return vox_angle_store(ctx, texture);
 }
 
+unsigned vox_angle_mtl_depth_create(void *handle, int width, int height)
+{
+    VoxAngleMetal *ctx = handle;
+    if (!ctx || width <= 0 || height <= 0) return 0;
+    MTLTextureDescriptor *descriptor =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+                                                           width:(NSUInteger)width
+                                                          height:(NSUInteger)height
+                                                       mipmapped:NO];
+    descriptor.usage = MTLTextureUsageRenderTarget;
+    descriptor.storageMode = MTLStorageModePrivate;
+    id<MTLTexture> texture = [ctx->device newTextureWithDescriptor:descriptor];
+    return vox_angle_store(ctx, texture);
+}
+
 /* Blocking GPU submission: waits for completion and reports command failure. */
 static int vox_angle_submit_and_wait(VoxAngleMetal *ctx, id<MTLCommandBuffer> command)
 {
     [command commit];
     [command waitUntilCompleted];
     return [command status] == MTLCommandBufferStatusCompleted;
+}
+
+int vox_angle_mtl_depth_clear(void *handle, unsigned resource, float depth)
+{
+    VoxAngleMetal *ctx = handle;
+    id<MTLTexture> texture = vox_angle_lookup(ctx, resource);
+    if (!texture) return 0;
+    MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.depthAttachment.texture = texture;
+    pass.depthAttachment.loadAction = MTLLoadActionClear;
+    pass.depthAttachment.storeAction = MTLStoreActionStore;
+    pass.depthAttachment.clearDepth = depth;
+    id<MTLCommandBuffer> command = [ctx->queue commandBuffer];
+    id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
+    [encoder endEncoding];
+    return vox_angle_submit_and_wait(ctx, command);
 }
 
 int vox_angle_mtl_texture_clear(void *handle, unsigned resource, float r, float g, float b, float a)
@@ -243,7 +274,7 @@ unsigned vox_angle_mtl_library_create(void *handle, const char *source, char *lo
 unsigned vox_angle_mtl_pipeline_create(void *handle, unsigned vs_library, const char *vs_entry,
                                        unsigned fs_library, const char *fs_entry, int attr_count,
                                        const int *components, const unsigned *strides, int blend_count,
-                                       const int *blend, int write_mask, char *log, int log_size)
+                                       const int *blend, int write_mask, int has_depth, char *log, int log_size)
 {
     VoxAngleMetal *ctx = handle;
     id<MTLLibrary> vs_lib = vox_angle_lookup(ctx, vs_library);
@@ -262,6 +293,7 @@ unsigned vox_angle_mtl_pipeline_create(void *handle, unsigned vs_library, const 
     desc.vertexFunction = vf;
     desc.fragmentFunction = ff;
     desc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+    if (has_depth) desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
     MTLColorWriteMask mask = MTLColorWriteMaskNone;
     if (write_mask & 1) mask |= MTLColorWriteMaskRed;
     if (write_mask & 2) mask |= MTLColorWriteMaskGreen;
@@ -329,7 +361,8 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
                        int uniform_count, const unsigned *uniform_sizes, const unsigned char *uniform_bytes,
                        const int *viewport, const int *scissor, int texture_count,
                        const unsigned *textures, const int *sampler_params, const float *blend_color,
-                       unsigned index_buffer, int index_type, unsigned index_offset)
+                       unsigned index_buffer, int index_type, unsigned index_offset, unsigned depth_texture,
+                       int depth_func, int depth_write, const float *depth_range, int cull, int front_ccw)
 {
     VoxAngleMetal *ctx = handle;
     id<MTLTexture> texture = vox_angle_lookup(ctx, target);
@@ -343,6 +376,12 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
         vertex_buffers[i] = vox_angle_lookup(ctx, buffers[i]);
         if (!vertex_buffers[i]) return 0;
     }
+    id<MTLTexture> depth = nil;
+    if (depth_texture) {
+        depth = vox_angle_lookup(ctx, depth_texture);
+        if (!depth) return 0;
+    }
+    if (depth_func > 7 || cull < 0 || cull > 2) return 0;
     id<MTLBuffer> indices = nil;
     if (index_buffer) {
         if (index_type != 1 && index_type != 2) return 0;
@@ -359,11 +398,29 @@ int vox_angle_mtl_draw(void *handle, unsigned target, unsigned pipeline, int pri
     pass.colorAttachments[0].texture = texture;
     pass.colorAttachments[0].loadAction = MTLLoadActionLoad;
     pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    if (depth) {
+        pass.depthAttachment.texture = depth;
+        pass.depthAttachment.loadAction = MTLLoadActionLoad;
+        pass.depthAttachment.storeAction = MTLStoreActionStore;
+    }
     id<MTLCommandBuffer> command = [ctx->queue commandBuffer];
     id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
     [encoder setRenderPipelineState:state];
+    if (depth && depth_func >= 0) {
+        MTLDepthStencilDescriptor *dd = [[MTLDepthStencilDescriptor alloc] init];
+        dd.depthCompareFunction = (MTLCompareFunction)depth_func;
+        dd.depthWriteEnabled = depth_write ? YES : NO;
+        id<MTLDepthStencilState> ds = [ctx->device newDepthStencilStateWithDescriptor:dd];
+        [dd release];
+        [encoder setDepthStencilState:ds];
+        [ds release];
+    }
+    [encoder setCullMode:(MTLCullMode)cull];
+    /* The vertex wrapper negates y, which reverses winding as Metal sees it. */
+    [encoder setFrontFacingWinding:front_ccw ? MTLWindingClockwise : MTLWindingCounterClockwise];
     /* GL window row y is texture row y in this layer, so the rectangles pass through. */
-    MTLViewport vp = { (double)viewport[0], (double)viewport[1], (double)viewport[2], (double)viewport[3], 0.0, 1.0 };
+    MTLViewport vp = { (double)viewport[0], (double)viewport[1], (double)viewport[2], (double)viewport[3],
+                       (double)depth_range[0], (double)depth_range[1] };
     [encoder setViewport:vp];
     MTLScissorRect rect = { (NSUInteger)scissor[0], (NSUInteger)scissor[1], (NSUInteger)scissor[2], (NSUInteger)scissor[3] };
     [encoder setScissorRect:rect];

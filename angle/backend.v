@@ -11,6 +11,10 @@ mut:
 	create_texture(width int, height int) !u32
 	upload_texture(texture u32, width int, height int, pixels []u8) !
 	clear_texture(texture u32, r f32, g f32, b f32, a f32) !
+	// create_depth_texture makes a 32-bit float depth attachment; destroy it
+	// with destroy_texture.
+	create_depth_texture(width int, height int) !u32
+	clear_depth(texture u32, depth f32) !
 	read_texture(texture u32, width int, height int) ![]u8
 	destroy_texture(texture u32)
 	create_buffer(size int) !u32
@@ -49,6 +53,8 @@ pub:
 	blend []i32
 	// write_mask has R=1, G=2, B=4, A=8.
 	write_mask i32 = 15
+	// has_depth is true when the draw target has a depth attachment.
+	has_depth bool
 }
 
 // DrawDesc is one validated draw. primitive uses the Metal MTLPrimitiveType
@@ -77,6 +83,18 @@ pub:
 	index_buffer u32
 	index_type   i32
 	index_offset u32
+	// depth_texture is 0 without a depth attachment. depth_func is -1 with the
+	// depth test off, else a comparison (0 never, 1 less, 2 equal, 3 less or
+	// equal, 4 greater, 5 not equal, 6 greater or equal, 7 always).
+	depth_texture u32
+	depth_func    i32 = -1
+	depth_write   bool
+	// depth_range is {near, far} for the viewport transform of window z.
+	depth_range []f32
+	// cull is 0 none, 1 front, 2 back; front_ccw says counter-clockwise
+	// triangles (in GL window coordinates, y up) are front-facing.
+	cull      i32
+	front_ccw bool
 	// viewport and scissor are {x, y, width, height} in GL window coordinates,
 	// already clipped to the target. The scissor always covers the draw.
 	viewport []i32

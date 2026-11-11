@@ -14,6 +14,8 @@ unsigned vox_angle_mtl_buffer_create(void *context, long long size);
 int vox_angle_mtl_buffer_write(void *context, unsigned buffer, long long offset, const void *bytes, long long size);
 int vox_angle_mtl_buffer_read(void *context, unsigned buffer, long long offset, void *bytes, long long size);
 unsigned vox_angle_mtl_texture_create(void *context, int width, int height);
+unsigned vox_angle_mtl_depth_create(void *context, int width, int height);
+int vox_angle_mtl_depth_clear(void *context, unsigned texture, float depth);
 int vox_angle_mtl_texture_clear(void *context, unsigned texture, float r, float g, float b, float a);
 int vox_angle_mtl_texture_upload(void *context, unsigned texture, int width, int height, const void *pixels);
 int vox_angle_mtl_texture_read(void *context, unsigned texture, int width, int height, void *pixels);
@@ -26,8 +28,10 @@ unsigned vox_angle_mtl_library_create(void *context, const char *source, char *l
 unsigned vox_angle_mtl_pipeline_create(void *context, unsigned vs_library, const char *vs_entry,
                                        unsigned fs_library, const char *fs_entry, int attr_count,
                                        const int *components, const unsigned *strides, int blend_count,
-                                       const int *blend, int write_mask, char *log, int log_size);
-/* index_buffer 0 draws plain vertices; otherwise count indices (index_type 1 = 16-bit, 2 = 32-bit)
+                                       const int *blend, int write_mask, int has_depth, char *log, int log_size);
+/* depth_texture 0 means no depth attachment; depth_func -1 disables the depth test, else it is
+ * an MTLCompareFunction number. depth_range is {near, far}. cull is 0 none, 1 front, 2 back.
+ * index_buffer 0 draws plain vertices; otherwise count indices (index_type 1 = 16-bit, 2 = 32-bit)
  * are read at index_offset bytes and start is ignored. blend_color is {r, g, b, a}.
  * textures[i] (0 for none) is bound to fragment texture and sampler slot i; sampler_params holds
  * four ints per slot: min filter, mag filter (0 nearest, 1 linear), wrap S, wrap T (0 repeat,
@@ -40,6 +44,7 @@ int vox_angle_mtl_draw(void *context, unsigned target, unsigned pipeline, int pr
                        int uniform_count, const unsigned *uniform_sizes, const unsigned char *uniform_bytes,
                        const int *viewport, const int *scissor, int texture_count,
                        const unsigned *textures, const int *sampler_params, const float *blend_color,
-                       unsigned index_buffer, int index_type, unsigned index_offset);
+                       unsigned index_buffer, int index_type, unsigned index_offset, unsigned depth_texture,
+                       int depth_func, int depth_write, const float *depth_range, int cull, int front_ccw);
 
 #endif

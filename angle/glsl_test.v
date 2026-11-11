@@ -74,6 +74,7 @@ fn test_emits_vertex_and_fragment_msl_with_flip_and_io_structs() {
 	assert vsrc.contains('float3 v_v_color [[user(locn0)]];')
 	assert vsrc.contains('vertex VS_Out vs_entry(')
 	assert vsrc.contains('_out.position.y = -_out.position.y;')
+	assert vsrc.contains('_out.position.z = (_out.position.z + _out.position.w) * 0.5;')
 	assert vsrc.contains('constant float4 &u_u_tint [[buffer(1)]]')
 	assert fsrc.contains('fragment FS_Out fs_entry(')
 	assert fsrc.contains('float3 v_v_color [[user(locn0)]];')

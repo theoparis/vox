@@ -64,6 +64,18 @@ void glDrawElements(unsigned, int, unsigned, const void *);
 void glEnable(unsigned);
 void glDisable(unsigned);
 unsigned char glIsEnabled(unsigned);
+void glDepthFunc(unsigned);
+void glDepthMask(unsigned char);
+void glClearDepthf(float);
+void glDepthRangef(float, float);
+void glCullFace(unsigned);
+void glFrontFace(unsigned);
+void glGenRenderbuffers(int, unsigned *);
+void glBindRenderbuffer(unsigned, unsigned);
+void glRenderbufferStorage(unsigned, unsigned, int, int);
+void glFramebufferRenderbuffer(unsigned, unsigned, unsigned, unsigned);
+void glDeleteRenderbuffers(int, const unsigned *);
+unsigned char glIsRenderbuffer(unsigned);
 void glFlush(void);
 void glFinish(void);
 
@@ -129,6 +141,18 @@ int main(int argc, char **argv)
     SYM(glEnable);
     SYM(glDisable);
     SYM(glIsEnabled);
+    SYM(glDepthFunc);
+    SYM(glDepthMask);
+    SYM(glClearDepthf);
+    SYM(glDepthRangef);
+    SYM(glCullFace);
+    SYM(glFrontFace);
+    SYM(glGenRenderbuffers);
+    SYM(glBindRenderbuffer);
+    SYM(glRenderbufferStorage);
+    SYM(glFramebufferRenderbuffer);
+    SYM(glDeleteRenderbuffers);
+    SYM(glIsRenderbuffer);
     SYM(glFlush);
     SYM(glFinish);
 
@@ -239,6 +263,38 @@ int main(int argc, char **argv)
     glClear_fn(0x4000);
     CHECK(glGetError_fn() == 0x0502); /* a masked clear is refused */
     glColorMask_fn(1, 1, 1, 1);
+
+    /* Depth-tested draws into the framebuffer with a depth renderbuffer. */
+    unsigned depth_rb = 0;
+    glGenRenderbuffers_fn(1, &depth_rb);
+    glBindRenderbuffer_fn(0x8D41, depth_rb);
+    glRenderbufferStorage_fn(0x8D41, 0x81A5, 4, 3);
+    glBindFramebuffer_fn(0x8D40, framebuffer);
+    glFramebufferRenderbuffer_fn(0x8D40, 0x8D00, 0x8D41, depth_rb);
+    CHECK(glCheckFramebufferStatus_fn(0x8D40) == 0x8CD5);
+    CHECK(glIsRenderbuffer_fn(depth_rb));
+    glUseProgram_fn(program);
+    glBindBuffer_fn(0x8892, vbo);
+    glVertexAttribPointer_fn((unsigned)pos, 2, 0x1406, 0, 0, NULL);
+    glClearDepthf_fn(1.0f);
+    glClearColor_fn(0, 0, 0, 1);
+    glClear_fn(0x4000 | 0x100);
+    glEnable_fn(0x0B71);
+    glDepthFunc_fn(0x0201);
+    glDepthMask_fn(1);
+    glDepthRangef_fn(0, 1);
+    glEnable_fn(0x0B44);
+    glCullFace_fn(0x0405);
+    glFrontFace_fn(0x0901);
+    glUniform4f_fn(glGetUniformLocation_fn(program, "u_color"), 0, 1, 0, 1);
+    glDrawArrays_fn(0x0004, 0, 3);
+    glClear_fn(0x100);
+    CHECK(glGetError_fn() == 0);
+    glDisable_fn(0x0B44);
+    glDisable_fn(0x0B71);
+    glDeleteRenderbuffers_fn(1, &depth_rb);
+    CHECK(!glIsRenderbuffer_fn(depth_rb));
+    CHECK(glGetError_fn() == 0);
 
     /* A broken shader reports a log through the C ABI. */
     const char *bad_src = "void main() { gl_FragColor = vec4(missing); }";

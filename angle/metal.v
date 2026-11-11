@@ -17,6 +17,8 @@ fn C.vox_angle_mtl_buffer_create(voidptr, i64) u32
 fn C.vox_angle_mtl_buffer_write(voidptr, u32, i64, voidptr, i64) int
 fn C.vox_angle_mtl_buffer_read(voidptr, u32, i64, voidptr, i64) int
 fn C.vox_angle_mtl_texture_create(voidptr, int, int) u32
+fn C.vox_angle_mtl_depth_create(voidptr, int, int) u32
+fn C.vox_angle_mtl_depth_clear(voidptr, u32, f32) int
 fn C.vox_angle_mtl_texture_clear(voidptr, u32, f32, f32, f32, f32) int
 fn C.vox_angle_mtl_texture_upload(voidptr, u32, int, int, voidptr) int
 fn C.vox_angle_mtl_texture_read(voidptr, u32, int, int, voidptr) int
@@ -84,6 +86,31 @@ pub fn (mut b MetalBackend) clear_texture(texture u32, r f32, g f32, b_ f32, a f
 	$if macos {
 		if C.vox_angle_mtl_texture_clear(b.context, texture, r, g, b_, a) == 0 {
 			return error('Metal clear failed')
+		}
+	} $else {
+		return error('the Metal backend requires macOS')
+	}
+}
+
+pub fn (mut b MetalBackend) create_depth_texture(width int, height int) !u32 {
+	$if macos {
+		if width <= 0 || height <= 0 {
+			return error('texture dimensions must be positive')
+		}
+		handle := C.vox_angle_mtl_depth_create(b.context, width, height)
+		if handle == 0 {
+			return error('Metal depth texture allocation failed')
+		}
+		return handle
+	} $else {
+		return error('the Metal backend requires macOS')
+	}
+}
+
+pub fn (mut b MetalBackend) clear_depth(texture u32, depth f32) ! {
+	$if macos {
+		if C.vox_angle_mtl_depth_clear(b.context, texture, depth) == 0 {
+			return error('Metal depth clear failed')
 		}
 	} $else {
 		return error('the Metal backend requires macOS')

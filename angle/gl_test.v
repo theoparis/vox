@@ -122,8 +122,9 @@ fn test_unsupported_and_invalid_requests_record_gl_errors() {
 		f.teardown()
 	}
 	mut c := f.display.current()
-	c.clear(gl_depth_buffer_bit)
-	assert c.get_error() == gl_invalid_operation
+	// Clearing the stencil buffer of a surface that has none is a no-op, not an error.
+	c.clear(gl_stencil_buffer_bit)
+	assert c.get_error() == gl_no_error
 	c.clear(0x8000)
 	assert c.get_error() == gl_invalid_value
 	c.bind_texture(0x1234, 1)

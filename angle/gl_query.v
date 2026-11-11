@@ -75,6 +75,13 @@ fn (c &Context) query_values(pname u32) ?[]f64 {
 			[f64(1 - int(c.blend.masked[0])), f64(1 - int(c.blend.masked[1])),
 				f64(1 - int(c.blend.masked[2])), f64(1 - int(c.blend.masked[3]))]
 		}
+		gl_depth_func_pname { [f64(c.depth.func)] }
+		gl_depth_writemask { [f64(if c.depth.mask_off { 0 } else { 1 })] }
+		gl_depth_clear_value { [f64(c.depth.clear_value)] }
+		gl_depth_range_pname { [f64(c.depth.near), f64(c.depth.far)] }
+		gl_cull_face_mode { [f64(c.depth.cull_mode)] }
+		gl_front_face_pname { [f64(c.depth.front_face)] }
+		gl_renderbuffer_binding { [f64(c.bound_renderbuffer)] }
 		gl_current_program {
 			[f64(c.current_program)]
 		}

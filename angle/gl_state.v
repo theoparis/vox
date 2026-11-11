@@ -34,7 +34,7 @@ pub fn (mut c Context) scissor(x int, y int, width int, height int) {
 	c.scissor_rect[3] = height
 }
 
-// enable turns on a capability. The scissor test and blending are supported.
+// enable turns on a capability: scissor test, blending, depth test, culling.
 pub fn (mut c Context) enable(cap u32) {
 	c.set_capability(cap, true)
 }
@@ -48,6 +48,8 @@ fn (mut c Context) set_capability(cap u32, on bool) {
 	match cap {
 		gl_scissor_test { c.scissor_test = on }
 		gl_blend { c.blend_enabled = on }
+		gl_depth_test { c.depth.test = on }
+		gl_cull_face_cap { c.depth.cull = on }
 		else { c.set_error(gl_invalid_enum) }
 	}
 }

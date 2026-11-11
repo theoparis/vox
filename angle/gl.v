@@ -46,6 +46,7 @@ pub const gl_color_attachment0 = u32(0x8ce0)
 pub const gl_framebuffer_complete = u32(0x8cd5)
 pub const gl_framebuffer_incomplete_attachment = u32(0x8cd6)
 pub const gl_framebuffer_incomplete_missing_attachment = u32(0x8cd7)
+pub const gl_framebuffer_incomplete_dimensions = u32(0x8cd9)
 
 // GLBuffer and GLTexture pair a GL name with its backend resource. A zero
 // handle means the name exists but has no storage allocated yet.
@@ -70,6 +71,15 @@ mut:
 struct GLFramebuffer {
 mut:
 	color_texture u32
+	depth_rb      u32
+}
+
+// GLRenderbuffer is a depth buffer; handle is 0 until storage is allocated.
+struct GLRenderbuffer {
+mut:
+	handle u32
+	width  int
+	height int
 }
 
 // Context is one OpenGL ES context. It owns the GL object namespace and the
@@ -88,6 +98,9 @@ mut:
 	buffers           map[u32]GLBuffer
 	textures          map[u32]GLTexture
 	framebuffers      map[u32]GLFramebuffer
+	renderbuffers     map[u32]GLRenderbuffer
+	bound_renderbuffer u32
+	depth             DepthState
 	bound_buffers     map[u32]u32
 	texture_units     [8]u32
 	active_unit       int
@@ -111,6 +124,8 @@ struct RenderTarget {
 	handle u32
 	width  int
 	height int
+	// depth is the depth attachment, or 0 when the target has none.
+	depth u32
 }
 
 // set_error keeps only the first pending error, as GL does.
@@ -155,6 +170,13 @@ fn (mut c Context) release_all() {
 	c.current_program = 0
 	c.buffers = map[u32]GLBuffer{}
 	c.textures = map[u32]GLTexture{}
+	for _, rb in c.renderbuffers {
+		if rb.handle != 0 {
+			c.display.backend.destroy_texture(rb.handle)
+		}
+	}
+	c.renderbuffers = map[u32]GLRenderbuffer{}
+	c.bound_renderbuffer = 0
 	c.framebuffers = map[u32]GLFramebuffer{}
 	c.bound_buffers = map[u32]u32{}
 	if c.black_texture != 0 {
@@ -444,6 +466,7 @@ fn (mut c Context) resolve_target() ?RenderTarget {
 			handle: c.surface.texture
 			width:  c.surface.width
 			height: c.surface.height
+			depth:  c.surface.depth
 		}
 	}
 	framebuffer := c.framebuffers[c.bound_framebuffer] or { return none }
@@ -454,10 +477,19 @@ fn (mut c Context) resolve_target() ?RenderTarget {
 	if texture.handle == 0 {
 		return none
 	}
+	mut depth := u32(0)
+	if framebuffer.depth_rb != 0 {
+		rb := c.renderbuffers[framebuffer.depth_rb] or { return none }
+		if rb.handle == 0 || rb.width != texture.width || rb.height != texture.height {
+			return none
+		}
+		depth = rb.handle
+	}
 	return RenderTarget{
 		handle: texture.handle
 		width:  texture.width
 		height: texture.height
+		depth:  depth
 	}
 }
 
@@ -485,6 +517,15 @@ pub fn (mut c Context) check_framebuffer_status(target u32) u32 {
 	if texture.handle == 0 {
 		return gl_framebuffer_incomplete_attachment
 	}
+	if framebuffer.depth_rb != 0 {
+		rb := c.renderbuffers[framebuffer.depth_rb] or { return gl_framebuffer_incomplete_attachment }
+		if rb.handle == 0 {
+			return gl_framebuffer_incomplete_attachment
+		}
+		if rb.width != texture.width || rb.height != texture.height {
+			return gl_framebuffer_incomplete_dimensions
+		}
+	}
 	return gl_framebuffer_complete
 }
 
@@ -494,24 +535,23 @@ pub fn (mut c Context) set_clear_color(r f32, g f32, b f32, a f32) {
 	c.clear_color = [r, g, b, a]!
 }
 
-// clear fills the whole color attachment. Depth and stencil clears are not
-// implemented; they are rejected as a whole so no partial clear is applied.
+// clear fills the whole color and/or depth attachment. A Metal load-action
+// clear ignores the scissor rectangle and the color mask, so such a clear is
+// refused as a whole until a masked fill exists; refusing is explicit, never
+// partial. The default framebuffer has no stencil buffer, and clearing a
+// buffer that does not exist is a no-op in GL, so the stencil bit is accepted.
 pub fn (mut c Context) clear(mask u32) {
 	known := gl_color_buffer_bit | gl_depth_buffer_bit | gl_stencil_buffer_bit
 	if mask & ~known != 0 {
 		c.set_error(gl_invalid_value)
 		return
 	}
-	if mask & (gl_depth_buffer_bit | gl_stencil_buffer_bit) != 0 {
-		c.set_error(gl_invalid_operation)
+	want_color := mask & gl_color_buffer_bit != 0
+	want_depth := mask & gl_depth_buffer_bit != 0
+	if !want_color && !want_depth {
 		return
 	}
-	if mask & gl_color_buffer_bit == 0 {
-		return
-	}
-	// A Metal load-action clear ignores the scissor rectangle and the color
-	// mask, so such a clear is refused until a masked fill exists. Refusing is explicit, not partial.
-	if c.scissor_test || !c.blend.full_mask() {
+	if c.scissor_test || (want_color && !c.blend.full_mask()) {
 		c.set_error(gl_invalid_operation)
 		return
 	}
@@ -519,10 +559,18 @@ pub fn (mut c Context) clear(mask u32) {
 		c.set_error(gl_invalid_framebuffer_operation)
 		return
 	}
-	c.display.backend.clear_texture(target.handle, c.clear_color[0], c.clear_color[1], c.clear_color[2],
-		c.clear_color[3]) or {
-		c.set_error(gl_out_of_memory)
-		return
+	if want_color {
+		c.display.backend.clear_texture(target.handle, c.clear_color[0], c.clear_color[1],
+			c.clear_color[2], c.clear_color[3]) or {
+			c.set_error(gl_out_of_memory)
+			return
+		}
+	}
+	if want_depth && target.depth != 0 && c.depth.write_enabled() {
+		c.display.backend.clear_depth(target.depth, c.depth.clear_value) or {
+			c.set_error(gl_out_of_memory)
+			return
+		}
 	}
 }
 

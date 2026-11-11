@@ -547,7 +547,7 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 		comps << i32(a.ty.comps())
 		strides << u32(stride)
 	}
-	mut key := c.blend_key() + '|'
+	mut key := c.blend_key() + c.depth_key(target) + '|'
 	for i, n in comps {
 		stride := strides[i]
 		key += '${n}:${stride},'
@@ -564,6 +564,7 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 			attr_strides:    strides
 			blend:           c.blend_codes()
 			write_mask:      c.mask_bits()
+			has_depth:       target.depth != 0
 		}) or {
 			c.set_error(gl_invalid_operation)
 			c.release_temp_index(temp_index)
@@ -571,6 +572,12 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 		}
 		p.pipelines[key] = h
 		h
+	}
+	// FRONT_AND_BACK culls every triangle, which Metal cannot express.
+	cull := c.cull_code()
+	if cull < 0 && (prim == 3 || prim == 4) {
+		c.release_temp_index(temp_index)
+		return
 	}
 	// An empty viewport or scissor covers no pixel, so the draw has no effect.
 	view, scis, visible := c.draw_rect(target)
@@ -600,6 +607,12 @@ fn (mut c Context) draw_impl(mode u32, first int, count int, index_type u32, ind
 		index_buffer: index_handle
 		index_type:   if isz == 4 { 2 } else if isz > 0 { 1 } else { 0 }
 		index_offset: if index_type == gl_unsigned_byte { u32(0) } else { u32(index_offset) }
+		depth_texture: target.depth
+		depth_func:    if c.depth.test && target.depth != 0 { depth_func_code(c.depth.func) or { i32(7) } } else { i32(-1) }
+		depth_write:   c.depth.write_enabled()
+		depth_range:   [c.depth.near, c.depth.far]
+		cull:          if cull < 0 { i32(0) } else { cull }
+		front_ccw:     c.depth.front_face == gl_ccw
 	}) or { c.set_error(gl_invalid_operation) }
 	c.release_temp_index(temp_index)
 }

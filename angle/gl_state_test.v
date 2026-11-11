@@ -52,7 +52,7 @@ fn test_enable_rejects_unknown_capabilities() {
 		f.teardown()
 	}
 	mut c := f.display.current()
-	c.enable(0x0B71) // GL_DEPTH_TEST
+	c.enable(0x0B90) // GL_STENCIL_TEST
 	assert c.get_error() == gl_invalid_enum
 	c.enable(gl_scissor_test)
 	assert c.scissor_test
